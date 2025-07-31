@@ -7,15 +7,12 @@ from service.db_schema import setup_schema
 from service.logger import log
 import service.config as config
 from service.parameters import INSTRUMENT_MAP
+from service.file_reader import FileReader # Import the new FileReader
+# from service.db_schema import setup_schema # Assuming you created this file
 
 class DataPipeline:
     """
     The main class for handling the data pipeline.
-    This class is responsible for:
-    - Connecting to the database.
-    - Managing the WebSocket connection for real-time data.
-    - Processing and storing incoming data.
-    - Handling different data sources (real-time vs. backtesting).
     """
     def __init__(self):
         """
@@ -47,11 +44,15 @@ class DataPipeline:
             log.error(f"Failed to connect to or initialize the database: {e}")
             raise
 
-
     async def db_writer(self):
         """Placeholder for the coroutine that writes data to the database."""
         log.info("Placeholder for: `db_writer`")
-        pass
+        while True:
+            # A simple loop to consume items from the queue for now
+            item = await self.db_queue.get()
+            log.info(f"DB Writer received: {item['data'].stock_name} @ {item['data'].last_price}")
+            self.db_queue.task_done()
+
 
     async def insert_live_ticks(self, ticks):
         """Placeholder for inserting a batch of ticks."""
@@ -85,27 +86,26 @@ class DataPipeline:
         pass
 
     async def start_file_reader(self):
-        """Placeholder for reading data from a file for backtesting."""
-        log.info("Placeholder for: `start_file_reader`")
-        pass
+        """Initializes and runs the file reader for backtesting."""
+        log.info("Starting file reader for backtesting.")
+        file_reader = FileReader()
+        # The stream_ticks method will run and put data into our queue
+        await file_reader.stream_ticks(self.db_queue)
+
 
     async def run(self):
         """The main entry point for the data pipeline."""
         log.info("Starting pipeline run...")
-        await self.initialize_db()
+        # await self.initialize_db() # Uncomment when ready
 
-        # The following lines are commented out as their targets are placeholders.
-        # We will uncomment and implement them in the subsequent steps.
-        # writer_task = asyncio.create_task(self.db_writer())
+        writer_task = asyncio.create_task(self.db_writer())
 
         try:
             await self.start_data_source()
+            # Wait for the queue to be fully processed after the source is done
+            await self.db_queue.join()
         finally:
             log.info("Shutting down data pipeline...")
-            if self.db_pool:
-                await self.db_pool.close()
-                log.info("Database connection pool closed.")
-            # if writer_task:
-            #     writer_task.cancel()
-            #     await asyncio.gather(writer_task, return_exceptions=True)
+            writer_task.cancel()
+            await asyncio.gather(writer_task, return_exceptions=True)
             log.info("Data pipeline shut down gracefully.")
