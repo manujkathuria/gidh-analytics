@@ -88,6 +88,30 @@ async def setup_schema(db_pool):
                 ON enriched_features (stock_name, interval, timestamp DESC);
             """)
 
+        # --- Create the Grafana View ---
+        log.info("Creating or replacing the Grafana features view...")
+        await connection.execute("""
+            CREATE OR REPLACE VIEW public.grafana_features_view AS
+            SELECT
+                timestamp, stock_name, interval, open, high, low, close, volume,
+                bar_vwap, session_vwap, instrument_token,
+                -- Unnested raw_scores with COALESCE for null-safety
+                COALESCE((raw_scores->>'bar_delta')::BIGINT, 0) AS bar_delta,
+                COALESCE((raw_scores->>'large_buy_volume')::BIGINT, 0) AS large_buy_volume,
+                COALESCE((raw_scores->>'large_sell_volume')::BIGINT, 0) AS large_sell_volume,
+                COALESCE((raw_scores->>'passive_buy_volume')::BIGINT, 0) AS passive_buy_volume,
+                COALESCE((raw_scores->>'passive_sell_volume')::BIGINT, 0) AS passive_sell_volume,
+                COALESCE((raw_scores->>'cvd_5m')::BIGINT, 0) AS cvd_5m,
+                COALESCE((raw_scores->>'cvd_10m')::BIGINT, 0) AS cvd_10m,
+                COALESCE((raw_scores->>'cvd_30m')::BIGINT, 0) AS cvd_30m,
+                COALESCE((raw_scores->>'rsi')::DOUBLE PRECISION, 50.0) AS rsi,
+                COALESCE((raw_scores->>'obv')::BIGINT, 0) AS obv,
+                COALESCE((raw_scores->>'mfi')::DOUBLE PRECISION, 50.0) AS mfi
+            FROM
+                public.enriched_features;
+        """)
+        log.info("Grafana view 'grafana_features_view' is ready.")
+
     log.info("Database schema setup is complete.")
 
 
