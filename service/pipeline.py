@@ -3,6 +3,7 @@ import asyncpg
 from collections import deque
 from datetime import timedelta
 
+from service.bar_aggregator import BarAggregatorProcessor
 from service.db_schema import setup_schema, truncate_tables_if_needed
 from service.logger import log
 import service.config as config
@@ -37,10 +38,12 @@ class DataPipeline:
 
         # --- Pipeline Components ---
         self.feature_enricher = FeatureEnricher()
+        self.bar_aggregator_processor = BarAggregatorProcessor() # Add this
 
         # Batching configuration
-        self.batch_size = 1000
-        self.batch_interval = 5  # seconds
+        self.tick_batch_size = 1000
+        self.bar_batch_size = 100
+        self.batch_interval = 2  # seconds
 
         # Counter for printing enriched ticks
         self.enriched_tick_print_counter = 0
@@ -57,122 +60,75 @@ class DataPipeline:
                 database=config.DB_NAME
             )
             log.info(f"Successfully connected to the database '{config.DB_NAME}'.")
-            await truncate_tables_if_needed(self.db_pool)
             await setup_schema(self.db_pool)
+            await truncate_tables_if_needed(self.db_pool)
         except Exception as e:
             log.error(f"Failed to connect to or initialize the database: {e}")
             raise
 
-    async def enricher_coroutine(self):
-        log.info("Enricher coroutine started.")
+    async def processor_and_writer_coroutine(self):
+        """
+        A single, powerful coroutine that consumes raw ticks and handles:
+        1. Feature Enrichment
+        2. Writing enriched ticks & depth to DB
+        3. Bar Aggregation
+        4. Writing feature bars to DB
+        """
+        log.info("Primary processor and writer coroutine started.")
+
+        tick_batch = []
+        bar_batch = []
+        last_write_time = asyncio.get_event_loop().time()
+
         while True:
-            raw_tick_message = await self.raw_tick_queue.get()
             try:
-                log.debug(f"[Enricher] Received raw tick message: {raw_tick_message}")
+                # 1. Get raw tick from the queue
+                raw_tick_message = await self.raw_tick_queue.get()
                 raw_tick = raw_tick_message.get('data')
-                if raw_tick is None:
-                    raise ValueError(f"'data' missing in message: {raw_tick_message}")
 
-                try:
-                    enriched_tick = self.feature_enricher.enrich_tick(raw_tick, self.data_window)
-                    log.debug(
-                        f"[Enricher] Enriched tick: {enriched_tick.stock_name} @ {enriched_tick.timestamp}, tick_volume={getattr(enriched_tick, 'tick_volume', None)}")
-                except Exception as e:
-                    log.error(f"[Enricher] enrich_tick failed for {raw_tick}. Using raw tick as fallback. Error: {e}",
-                              exc_info=True)
-                    enriched_tick = raw_tick  # type: ignore
+                # 2. Enrich the tick
+                enriched_tick = self.feature_enricher.enrich_tick(raw_tick, self.data_window)
+                tick_batch.append(enriched_tick)
 
-                # Manage data window
+                # 3. Manage the global data window
                 current_timestamp = enriched_tick.timestamp
                 self.data_window.append((current_timestamp, enriched_tick))
                 while self.data_window and (
                         current_timestamp - self.data_window[0][0]).total_seconds() > self.data_window_seconds:
                     self.data_window.popleft()
 
-                await self.enriched_tick_queue.put(enriched_tick)
-                log.debug(
-                    f"[Enricher] Put enriched tick into queue. Enriched queue size: {self.enriched_tick_queue.qsize()}")
+                # 4. Process with the bar aggregator
+                updated_bars = self.bar_aggregator_processor.process_tick(enriched_tick)
+                if updated_bars:
+                    bar_batch.extend(updated_bars)
 
-            except Exception as e:
-                log.error(f"Failed to process raw tick message: {raw_tick_message}. Error: {e}", exc_info=True)
-            finally:
-                self.raw_tick_queue.task_done()
-
-    async def db_writer_coroutine(self):
-        log.info("DB writer coroutine started.")
-        ticks_batch = []
-        last_write_time = asyncio.get_event_loop().time()
-
-        try:
-            while True:
-                # Wait up to batch_interval for the first tick
-                try:
-                    enriched_tick = await asyncio.wait_for(self.enriched_tick_queue.get(), timeout=self.batch_interval)
-                    log.debug(
-                        f"[DB Writer] Received enriched tick: {enriched_tick.stock_name} @ {enriched_tick.timestamp}")
-                    ticks_batch.append(enriched_tick)
-                except asyncio.TimeoutError:
-                    log.debug(
-                        f"[DB Writer] No tick received in {self.batch_interval}s. Current batch size: {len(ticks_batch)}; queue size: {self.enriched_tick_queue.qsize()}")
-                except Exception as e:
-                    log.error(f"[DB Writer] Unexpected error while getting tick: {e}", exc_info=True)
-                    # continue so we don't kill the loop
-
-                # Drain any additional available ticks without waiting
-                while len(ticks_batch) < self.batch_size:
-                    try:
-                        extra_tick = self.enriched_tick_queue.get_nowait()
-                        log.debug(
-                            f"[DB Writer] Drained extra enriched tick: {extra_tick.stock_name} @ {extra_tick.timestamp}")
-                        ticks_batch.append(extra_tick)
-                    except asyncio.QueueEmpty:
-                        break
-
+                # 5. Check if it's time to write batches to DB
                 time_since_last_write = asyncio.get_event_loop().time() - last_write_time
-                if ticks_batch and (
-                        len(ticks_batch) >= self.batch_size or time_since_last_write >= self.batch_interval):
-                    log.info(f"Writing batch of {len(ticks_batch)} ticks to DB...")
-                    ticks_with_depth = [t for t in ticks_batch if t.depth]
+                if (len(tick_batch) >= self.tick_batch_size or
+                        len(bar_batch) >= self.bar_batch_size or
+                        time_since_last_write >= self.batch_interval):
 
-                    try:
-                        await db_writer.batch_insert_ticks(self.db_pool, ticks_batch)
+                    # Write ticks and depth
+                    if tick_batch:
+                        log.info(f"Writing batch of {len(tick_batch)} ticks to DB...")
+                        ticks_with_depth = [t for t in tick_batch if t.depth]
+                        await db_writer.batch_insert_ticks(self.db_pool, tick_batch)
                         if ticks_with_depth:
                             await db_writer.batch_insert_order_depths(self.db_pool, ticks_with_depth)
-                    except Exception as e:
-                        log.error(f"[DB Writer] Failed to write batch to DB: {e}", exc_info=True)
-                        # Decide: you might retry or drop; for now, continue so it doesn't deadlock
+                        tick_batch.clear()
 
-                    # Acknowledge all pulled ticks
-                    for _ in ticks_batch:
-                        try:
-                            self.enriched_tick_queue.task_done()
-                        except Exception:
-                            # protection in case of mismatch
-                            log.warning("Task done mismatch when acknowledging enriched ticks.")
-                    ticks_batch.clear()
+                    # Write feature bars
+                    if bar_batch:
+                        log.info(f"Writing batch of {len(bar_batch)} feature bars to DB...")
+                        await db_writer.batch_upsert_features(self.db_pool, bar_batch)
+                        bar_batch.clear()
+
                     last_write_time = asyncio.get_event_loop().time()
 
-        except asyncio.CancelledError:
-            log.info("DB writer coroutine is being cancelled.")
-        except Exception as e:
-            log.error(f"[DB Writer] Coroutine crashed unexpectedly: {e}", exc_info=True)
-        finally:
-            if ticks_batch:
-                log.warning(f"Writing final batch of {len(ticks_batch)} ticks before shutdown.")
-                ticks_with_depth = [t for t in ticks_batch if t.depth]
-                try:
-                    await db_writer.batch_insert_ticks(self.db_pool, ticks_batch)
-                    if ticks_with_depth:
-                        await db_writer.batch_insert_order_depths(self.db_pool, ticks_with_depth)
-                except Exception as e:
-                    log.error(f"[DB Writer] Final flush failed: {e}", exc_info=True)
-                for _ in ticks_batch:
-                    try:
-                        self.enriched_tick_queue.task_done()
-                    except Exception:
-                        pass
-                ticks_batch.clear()
-            log.info("DB writer coroutine finished cleanup.")
+            except Exception as e:
+                log.error(f"Error in processor coroutine: {e}", exc_info=True)
+            finally:
+                self.raw_tick_queue.task_done()
 
     async def start_data_source(self):
         """Starts the data source based on the selected mode."""
@@ -198,9 +154,8 @@ class DataPipeline:
         await self.initialize_db()
 
         # Create tasks for each pipeline stage
-        enricher_task = asyncio.create_task(self.enricher_coroutine())
-        writer_task = asyncio.create_task(self.db_writer_coroutine())
-        attach_task_monitor(writer_task, "DB writer")
+        processor_task = asyncio.create_task(self.processor_and_writer_coroutine())
+        attach_task_monitor(processor_task, "Processor and Writer")
 
         # Start the data source in a separate task
         data_source_task = asyncio.create_task(self.start_data_source())
@@ -208,25 +163,18 @@ class DataPipeline:
         try:
             # Wait for the data source to finish
             await data_source_task
-
-            # Wait for both queues to be fully processed
-            log.info("Data source finished. Waiting for queues to empty...")
+            log.info("Data source finished. Waiting for queue to empty...")
             await self.raw_tick_queue.join()
-            await self.enriched_tick_queue.join()
-            log.info("Queues are empty.")
-
+            log.info("Queue is empty.")
 
         except Exception as e:
             log.error(f"An unhandled exception occurred in the main run loop: {e}", exc_info=True)
 
         finally:
             log.info("Shutting down data pipeline...")
-            log.info(f"Final in-memory data window size: {len(self.data_window)} ticks.")
-
-            # Gracefully cancel all background tasks
-            enricher_task.cancel()
-            writer_task.cancel()
-            await asyncio.gather(enricher_task, writer_task, return_exceptions=True)
+            # Gracefully cancel the processor task
+            processor_task.cancel()
+            await asyncio.gather(processor_task, return_exceptions=True)
 
             if self.db_pool:
                 await self.db_pool.close()

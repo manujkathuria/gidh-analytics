@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+
 
 @dataclass
 class DepthLevel:
@@ -70,3 +71,23 @@ class EnrichedTick:
     # --- Placeholders for future features ---
     is_sell_absorption: bool = False
     is_buy_absorption: bool = False
+
+
+@dataclass
+class BarData:
+    """Represents an aggregated bar of market data for a specific interval."""
+    timestamp: datetime
+    stock_name: str
+    instrument_token: int
+    interval: str  # e.g., "1m", "5m", "15m"
+
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    bar_vwap: float
+    bar_count: int
+    session_vwap: Optional[float] = None
+    # This dictionary will be stored as JSONB in the database
+    raw_scores: Dict[str, Any] = field(default_factory=dict)

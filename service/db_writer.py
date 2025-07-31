@@ -1,10 +1,12 @@
 import asyncio
+import json
 from typing import List
 import asyncpg
 from service.logger import log
-from service.models import TickData, OrderDepth
+from service.models import EnrichedTick, OrderDepth, BarData
 
-async def batch_insert_ticks(db_pool, ticks: List[TickData]):
+
+async def batch_insert_ticks(db_pool, ticks: List[EnrichedTick]):
     if not ticks:
         return
 
@@ -34,7 +36,7 @@ async def batch_insert_ticks(db_pool, ticks: List[TickData]):
             raise
 
 
-async def batch_insert_order_depths(db_pool, ticks_with_depth: List[TickData]):
+async def batch_insert_order_depths(db_pool, ticks_with_depth: List[EnrichedTick]):
     """
     Inserts a batch of OrderDepth data into the live_order_depth table.
     """
@@ -72,3 +74,42 @@ async def batch_insert_order_depths(db_pool, ticks_with_depth: List[TickData]):
             log.error(f"Failed to batch insert order depths: {e}")
         except Exception as e:
             log.error(f"An unexpected error occurred during order depth insertion: {e}")
+
+
+async def batch_upsert_features(db_pool, bars: List[BarData]):
+    """
+    Inserts or updates a batch of bar data into the enriched_features table.
+    Uses ON CONFLICT to perform an "UPSERT" for real-time updates.
+    """
+    if not bars:
+        return
+
+    records_to_upsert = [
+        (
+            b.timestamp, b.stock_name, b.interval, b.open, b.high, b.low, b.close,
+            b.volume, b.bar_vwap, b.session_vwap, json.dumps(b.raw_scores), b.instrument_token
+        ) for b in bars
+    ]
+
+    async with db_pool.acquire() as connection:
+        try:
+            await connection.executemany("""
+                INSERT INTO public.enriched_features (
+                    timestamp, stock_name, interval, open, high, low, close,
+                    volume, bar_vwap, session_vwap, raw_scores, instrument_token
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                ON CONFLICT (timestamp, stock_name, interval) DO UPDATE
+                SET
+                    open = EXCLUDED.open,
+                    high = EXCLUDED.high,
+                    low = EXCLUDED.low,
+                    close = EXCLUDED.close,
+                    volume = EXCLUDED.volume,
+                    bar_vwap = EXCLUDED.bar_vwap,
+                    session_vwap = EXCLUDED.session_vwap,
+                    raw_scores = EXCLUDED.raw_scores;
+            """, records_to_upsert)
+            log.info(f"Successfully upserted batch of {len(bars)} feature bars.")
+        except asyncpg.PostgresError as e:
+            log.error(f"Failed to batch upsert feature bars: {e}", exc_info=True)
+            raise

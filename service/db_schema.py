@@ -62,27 +62,31 @@ async def setup_schema(db_pool):
 
         # Create enriched_features table
         await connection.execute("""
-            CREATE TABLE IF NOT EXISTS public.enriched_features (
-                timestamp    TIMESTAMPTZ NOT NULL,
-                stock_name   TEXT NOT NULL,
-                interval     TEXT NOT NULL,
-                open         DOUBLE PRECISION,
-                high         DOUBLE PRECISION,
-                low          DOUBLE PRECISION,
-                close        DOUBLE PRECISION,
-                volume       BIGINT,
-                bar_vwap     DOUBLE PRECISION,
-                session_vwap DOUBLE PRECISION,
-                raw_scores   JSONB,
-                instrument_token INTEGER
-            );
-        """)
-        # This table might also benefit from being a hypertable if it grows large
+                CREATE TABLE IF NOT EXISTS public.enriched_features (
+                    timestamp        TIMESTAMPTZ NOT NULL,
+                    stock_name       TEXT NOT NULL,
+                    interval         TEXT NOT NULL,
+                    open             DOUBLE PRECISION,
+                    high             DOUBLE PRECISION,
+                    low              DOUBLE PRECISION,
+                    close            DOUBLE PRECISION,
+                    volume           BIGINT,
+                    bar_vwap         DOUBLE PRECISION,
+                    session_vwap     DOUBLE PRECISION,
+                    raw_scores       JSONB,
+                    instrument_token INTEGER,
+                    -- Define the composite primary key for the UPSERT to work
+                    PRIMARY KEY (timestamp, stock_name, interval)
+                );
+            """)
+        # Convert to hypertable
         await connection.execute("SELECT create_hypertable('enriched_features', 'timestamp', if_not_exists => TRUE);")
+
+        # The existing index is still useful for fast lookups
         await connection.execute("""
-            CREATE INDEX IF NOT EXISTS enriched_features_stock_interval_timestamp_idx
-            ON enriched_features (stock_name, interval, timestamp DESC);
-        """)
+                CREATE INDEX IF NOT EXISTS enriched_features_stock_interval_timestamp_idx
+                ON enriched_features (stock_name, interval, timestamp DESC);
+            """)
 
     log.info("Database schema setup is complete.")
 
@@ -93,11 +97,11 @@ async def truncate_tables_if_needed(db_pool):
     config flag is set.
     """
     if config.PIPELINE_MODE == 'backtesting' and config.TRUNCATE_TABLES_ON_BACKTEST:
-        log.warning("Truncating 'live_ticks' and 'live_order_depth' tables as per configuration.")
+        log.warning("Truncating 'live_ticks', 'live_order_depth' and 'enriched_features' tables as per configuration.")
         try:
             async with db_pool.acquire() as connection:
                 await connection.execute("""
-                    TRUNCATE TABLE public.live_ticks, public.live_order_depth RESTART IDENTITY;
+                    TRUNCATE TABLE public.live_ticks, public.live_order_depth, public.enriched_features RESTART IDENTITY;
                 """)
             log.info("Successfully truncated tables.")
         except Exception as e:

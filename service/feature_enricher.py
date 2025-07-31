@@ -1,23 +1,41 @@
 from collections import deque
-from typing import Dict
+from typing import Dict, Any
 import numpy as np
 
 from service.models import TickData, EnrichedTick
 from service.logger import log
 
+# Threshold for confirming a hidden order through refills.
+ICEBERG_CONFIRMATION_THRESHOLD = 2
+
 
 class FeatureEnricher:
     """
-    A stateful class that enriches raw TickData with calculated features.
+    A stateful class that enriches raw TickData with calculated features,
+    including trade sign, large trade detection, and market absorption.
     """
 
     def __init__(self):
-        # Dictionaries to store the last known state for each instrument
-        self.last_tick_map: Dict[int, TickData] = {}
+        # A dictionary to hold the state for each instrument.
+        self.instrument_states: Dict[int, Dict[str, Any]] = {}
+
+    def _get_instrument_state(self, instrument_token: int) -> Dict[str, Any]:
+        """Initializes and retrieves the state for a given instrument."""
+        if instrument_token not in self.instrument_states:
+            self.instrument_states[instrument_token] = {
+                "last_tick": None,
+                "last_best_bid_price": 0.0,
+                "last_best_ask_price": 0.0,
+                "last_best_bid_qty": 0,
+                "last_best_ask_qty": 0,
+                "hidden_sell_order_refill_count": 0,
+                "hidden_buy_order_refill_count": 0,
+            }
+        return self.instrument_states[instrument_token]
 
     def enrich_tick(self, tick: TickData, data_window: deque) -> EnrichedTick:
         """
-        Calculates enrichment features for a single tick.
+        Calculates enrichment features for a single tick, translating the Go logic.
 
         Args:
             tick: The raw TickData object to enrich.
@@ -27,42 +45,80 @@ class FeatureEnricher:
             An EnrichedTick object with new features calculated.
         """
         instrument_token = tick.instrument_token
-        last_tick = self.last_tick_map.get(instrument_token)
+        state = self._get_instrument_state(instrument_token)
+        last_tick = state["last_tick"]
 
         # --- 1. Calculate TickVolume ---
         tick_volume = 0
         if last_tick and tick.volume_traded is not None and last_tick.volume_traded is not None:
-            # The true volume is the change in cumulative volume
             tick_volume = tick.volume_traded - last_tick.volume_traded
-            if tick_volume < 0:  # Handle potential data resets or errors
-                tick_volume = 0
+            if tick_volume < 0: tick_volume = 0  # Handle resets
 
-        # --- 2. Calculate TradeSign ---
+        # --- 2. Determine TradeSign (Aggressor) using the more robust logic ---
         trade_sign = 0
-        if last_tick and tick.last_price is not None and last_tick.last_price is not None:
-            if tick.last_price > last_tick.last_price:
-                trade_sign = 1  # Uptick
-            elif tick.last_price < last_tick.last_price:
-                trade_sign = -1  # Downtick
+        if tick.last_price is not None:
+            # Primary logic: check against previous best bid/ask
+            if state["last_best_ask_price"] > 0 and tick.last_price >= state["last_best_ask_price"]:
+                trade_sign = 1  # Buy aggressor
+            elif state["last_best_bid_price"] > 0 and tick.last_price <= state["last_best_bid_price"]:
+                trade_sign = -1  # Sell aggressor
+            # Fallback logic: compare with last price
+            elif last_tick and last_tick.last_price is not None:
+                if tick.last_price > last_tick.last_price:
+                    trade_sign = 1
+                elif tick.last_price < last_tick.last_price:
+                    trade_sign = -1
 
-        # --- 3. Calculate IsLargeTrade ---
+        # --- 3. Calculate IsLargeTrade (existing logic) ---
         is_large_trade = False
-        if tick_volume > 0 and len(data_window) > 10:  # Ensure we have enough data
+        if tick_volume > 0 and len(data_window) > 20:  # Ensure enough data for a meaningful percentile
             # Get recent trade volumes for this specific instrument from the window
             recent_volumes = [
                 et.tick_volume for ts, et in data_window
                 if et.instrument_token == instrument_token and et.tick_volume > 0
             ]
 
-            if len(recent_volumes) > 10:
-                # Calculate the dynamic threshold
-                avg_vol = np.mean(recent_volumes)
-                std_dev_vol = np.std(recent_volumes)
-                # A trade is "large" if it's more than 2 standard deviations above the mean
-                large_trade_threshold = avg_vol + (2 * std_dev_vol)
+            if len(recent_volumes) > 20:
+                # Calculate the 90th percentile threshold using numpy
+                p90_threshold = np.percentile(recent_volumes, 90)
 
-                if tick_volume > large_trade_threshold:
+                if tick_volume > p90_threshold > 0:
                     is_large_trade = True
+
+        # --- 4. Detect Buy/Sell Absorption (Iceberg Orders) ---
+        is_buy_absorption = False
+        is_sell_absorption = False
+
+        if tick.depth and tick.depth.buy and tick.depth.sell and tick_volume > 0:
+            best_bid = tick.depth.buy[0]
+            best_ask = tick.depth.sell[0]
+
+            # --- Check for Sell-Side Absorption (Resistance) ---
+            # If the best ask price has changed, a hidden order at the previous price is gone. Reset.
+            if best_ask.price != state["last_best_ask_price"]:
+                state["hidden_sell_order_refill_count"] = 0
+            # Else, if a buy trade occurred at this price level...
+            elif trade_sign == 1:
+                # ...and the new quantity is greater than what it should have been, it implies a refill.
+                if best_ask.quantity > (state["last_best_ask_qty"] - tick_volume):
+                    state["hidden_sell_order_refill_count"] += 1
+
+            # --- Check for Buy-Side Absorption (Support) ---
+            # If the best bid price has changed, a hidden order at the previous price is gone. Reset.
+            if best_bid.price != state["last_best_bid_price"]:
+                state["hidden_buy_order_refill_count"] = 0
+            # Else, if a sell trade occurred at this price level...
+            elif trade_sign == -1:
+                # ...and the new quantity is greater than what it should have been, it implies a refill.
+                if best_bid.quantity > (state["last_best_bid_qty"] - tick_volume):
+                    state["hidden_buy_order_refill_count"] += 1
+
+            # Set the final boolean flags if the confirmation threshold is met
+            if state["hidden_sell_order_refill_count"] >= ICEBERG_CONFIRMATION_THRESHOLD:
+                is_sell_absorption = True
+
+            if state["hidden_buy_order_refill_count"] >= ICEBERG_CONFIRMATION_THRESHOLD:
+                is_buy_absorption = True
 
         # --- Assemble the EnrichedTick ---
         enriched_tick = EnrichedTick(
@@ -82,21 +138,22 @@ class FeatureEnricher:
             ohlc_close=tick.ohlc_close,
             change=tick.change,
             depth=tick.depth,
+
             # Add new fields
             tick_volume=tick_volume,
             trade_sign=trade_sign,
-            is_large_trade=is_large_trade
+            is_large_trade=is_large_trade,
+            is_buy_absorption=is_buy_absorption,
+            is_sell_absorption=is_sell_absorption
         )
 
-        # Update the last tick map for the next iteration
-        self.last_tick_map[instrument_token] = tick
-
-        log.debug(
-            "enriched tick: %s, %s, %s, %s",
-            enriched_tick.stock_name,
-            enriched_tick.tick_volume,
-            enriched_tick.trade_sign,
-            enriched_tick.is_large_trade
-        )
+        # --- 5. Update state for the next tick ---
+        state["last_tick"] = tick
+        if tick.depth and tick.depth.buy:
+            state["last_best_bid_price"] = tick.depth.buy[0].price
+            state["last_best_bid_qty"] = tick.depth.buy[0].quantity
+        if tick.depth and tick.depth.sell:
+            state["last_best_ask_price"] = tick.depth.sell[0].price
+            state["last_best_ask_qty"] = tick.depth.sell[0].quantity
 
         return enriched_tick
