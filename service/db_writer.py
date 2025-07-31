@@ -5,15 +5,11 @@ from service.logger import log
 from service.models import TickData, OrderDepth
 
 async def batch_insert_ticks(db_pool, ticks: List[TickData]):
-    """
-    Inserts a batch of TickData into the live_ticks table using an asyncpg connection pool.
-    """
     if not ticks:
         return
 
     async with db_pool.acquire() as connection:
         try:
-            # executemany is efficient for batch inserts
             await connection.executemany("""
                 INSERT INTO public.live_ticks (
                     timestamp, stock_name, last_price, last_traded_quantity,
@@ -28,11 +24,14 @@ async def batch_insert_ticks(db_pool, ticks: List[TickData]):
                 t.total_sell_quantity, t.ohlc_open, t.ohlc_high, t.ohlc_low,
                 t.ohlc_close, t.change, t.instrument_token
             ) for t in ticks])
-            log.info(f"Successfully inserted batch of {len(ticks)} ticks.")
+            log.info(f"Successfully inserted batch of {len(ticks)} ticks. Sample first tick: {ticks[0].stock_name} @ {ticks[0].timestamp}")
         except asyncpg.PostgresError as e:
-            log.error(f"Failed to batch insert ticks: {e}")
+            sample_keys = [(t.timestamp, t.stock_name) for t in ticks[:3]]
+            log.error(f"Failed to batch insert ticks: {e}; sample keys: {sample_keys}", exc_info=True)
+            raise  # so the writer can see it if you want to stop on failure
         except Exception as e:
-            log.error(f"An unexpected error occurred during tick insertion: {e}")
+            log.error(f"An unexpected error occurred during tick insertion: {e}", exc_info=True)
+            raise
 
 
 async def batch_insert_order_depths(db_pool, ticks_with_depth: List[TickData]):

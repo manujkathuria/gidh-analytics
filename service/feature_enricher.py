@@ -71,6 +71,7 @@ class FeatureEnricher:
             instrument_token=tick.instrument_token,
             stock_name=tick.stock_name,
             last_price=tick.last_price,
+            last_traded_quantity=tick.last_traded_quantity,
             average_traded_price=tick.average_traded_price,
             volume_traded=tick.volume_traded,
             total_buy_quantity=tick.total_buy_quantity,
