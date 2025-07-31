@@ -91,4 +91,12 @@ class FeatureEnricher:
         # Update the last tick map for the next iteration
         self.last_tick_map[instrument_token] = tick
 
+        log.debug(
+            "enriched tick: %s, %s, %s, %s",
+            enriched_tick.stock_name,
+            enriched_tick.tick_volume,
+            enriched_tick.trade_sign,
+            enriched_tick.is_large_trade
+        )
+
         return enriched_tick
