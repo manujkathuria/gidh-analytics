@@ -1,6 +1,8 @@
 import asyncio
+import asyncpg
 from collections import deque
 
+from service.db_schema import setup_schema
 # Import from our new service modules
 from service.logger import log
 import service.config as config
@@ -20,7 +22,6 @@ class DataPipeline:
         Initializes the DataPipeline using settings from config and parameters files.
         """
         self.mode = config.PIPELINE_MODE
-        # We now get the instrument tokens from the values of the map.
         self.instruments = list(INSTRUMENT_MAP.values())
         self.instrument_map = INSTRUMENT_MAP
         self.db_pool = None
@@ -30,14 +31,22 @@ class DataPipeline:
         log.info(f"DataPipeline initialized in '{self.mode}' mode for {len(self.instruments)} instruments.")
 
     async def initialize_db(self):
-        """Placeholder for creating an asyncpg connection pool."""
-        log.info("Placeholder for: `initialize_db`")
-        pass
+        """Creates an asyncpg connection pool and ensures tables are set up."""
+        try:
+            self.db_pool = await asyncpg.create_pool(
+                user=config.DB_USER,
+                password=config.DB_PASSWORD,
+                host=config.DB_HOST,
+                port=config.DB_PORT,
+                database=config.DB_NAME
+            )
+            log.info(f"Successfully connected to the database '{config.DB_NAME}'.")
+            # Ensure the necessary tables and hypertables exist.
+            await setup_schema(self.db_pool)
+        except Exception as e:
+            log.error(f"Failed to connect to or initialize the database: {e}")
+            raise
 
-    async def create_tables(self):
-        """Placeholder for creating the necessary tables in TimescaleDB."""
-        log.info("Placeholder for: `create_tables`")
-        pass
 
     async def db_writer(self):
         """Placeholder for the coroutine that writes data to the database."""
@@ -93,6 +102,9 @@ class DataPipeline:
             await self.start_data_source()
         finally:
             log.info("Shutting down data pipeline...")
+            if self.db_pool:
+                await self.db_pool.close()
+                log.info("Database connection pool closed.")
             # if writer_task:
             #     writer_task.cancel()
             #     await asyncio.gather(writer_task, return_exceptions=True)
