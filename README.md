@@ -65,3 +65,40 @@ Accessing the intelligence from the Gidh Analytics platform is simple:
     
 
 There is no complex setup required. The dashboard is designed to be the primary interface for consuming this high-value data.
+
+
+## How to Backtest
+
+The platform includes a powerful backtesting engine that allows you to process historical data and generate features as if it were happening in real-time.
+
+### Step 1: Configure Your Environment
+
+1.  **Create a `.env` file:** In the project's root directory, make a copy of `.env.example` and rename it to `.env`.
+
+2.  **Edit the `.env` file:**
+    * Set `PIPELINE_MODE=backtesting`.
+    * Set `TRUNCATE_TABLES_ON_BACKTEST=true` to ensure each run starts with a clean database.
+    * Provide the correct connection details for your `DB_*` variables.
+    * Set `BACKTEST_DATA_DIRECTORY` to the absolute path of your historical data folder.
+    * Set `BACKTEST_DATE` to the specific date you want to process (e.g., `2024-01-25`).
+
+### Step 2: Structure Your Data Directory
+
+The backtesting engine expects your historical data to be organized in a specific way. Inside your `BACKTEST_DATA_DIRECTORY`, create a folder for each day of data (e.g., a folder named `2024-01-25`).
+
+Inside each daily folder, you must have two sub-folders:
+* `live_ticks`
+* `live_order_depth`
+
+The data files must be placed inside these folders with the following naming convention:
+* `.../2024-01-25/live_ticks/live_ticks_DIXON.csv`
+* `.../2024-01-25/live_order_depth/live_order_depth_DIXON.csv`
+
+The system will automatically discover and process the data for the instruments defined in the configuration.
+
+### Step 3: Run the Backtest
+
+Once your `.env` file is configured and your data is structured correctly, simply run the main application from your terminal:
+
+```bash
+python main.py
