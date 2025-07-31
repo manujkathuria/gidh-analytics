@@ -1,3 +1,4 @@
+from service import config
 from service.logger import log
 
 async def setup_schema(db_pool):
@@ -84,3 +85,23 @@ async def setup_schema(db_pool):
         """)
 
     log.info("Database schema setup is complete.")
+
+
+async def truncate_tables_if_needed(db_pool):
+    """
+    Truncates market data tables if the pipeline is in backtesting mode and the
+    config flag is set.
+    """
+    if config.PIPELINE_MODE == 'backtesting' and config.TRUNCATE_TABLES_ON_BACKTEST:
+        log.warning("Truncating 'live_ticks' and 'live_order_depth' tables as per configuration.")
+        try:
+            async with db_pool.acquire() as connection:
+                await connection.execute("""
+                    TRUNCATE TABLE public.live_ticks, public.live_order_depth RESTART IDENTITY;
+                """)
+            log.info("Successfully truncated tables.")
+        except Exception as e:
+            log.error(f"Failed to truncate tables: {e}")
+            raise
+    else:
+        log.info("Skipping table truncation based on current mode and configuration.")

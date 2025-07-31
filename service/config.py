@@ -17,10 +17,16 @@ DB_PORT = os.getenv("DB_PORT")
 DB_NAME = os.getenv("DB_NAME")
 PIPELINE_MODE = os.getenv("PIPELINE_MODE", "realtime")
 
-# --- New Backtesting Configuration ---
+# --- Backtesting Configuration ---
 BACKTEST_DATA_DIRECTORY = os.getenv("BACKTEST_DATA_DIRECTORY")
 BACKTEST_DATE_STR = os.getenv("BACKTEST_DATE")
 BACKTEST_SLEEP_DURATION = float(os.getenv("BACKTEST_SLEEP_DURATION", 0.001))
+
+# --- New Data Window and Truncation Settings ---
+DATA_WINDOW_MINUTES = int(os.getenv("DATA_WINDOW_MINUTES", 60))
+# Convert "true" string to boolean
+TRUNCATE_TABLES_ON_BACKTEST = os.getenv("TRUNCATE_TABLES_ON_BACKTEST", "false").lower() == "true"
+
 
 def validate_config():
     """
@@ -65,6 +71,9 @@ def validate_config():
 
     log.info("Configuration loaded and validated successfully.")
     log.info(f"Pipeline mode is set to: '{PIPELINE_MODE}'")
+    log.info(f"Data window is set to: {DATA_WINDOW_MINUTES} minutes")
+    log.info(f"Truncate tables on backtest: {TRUNCATE_TABLES_ON_BACKTEST}")
+
 
 # --- Run Validation on Import ---
 validate_config()

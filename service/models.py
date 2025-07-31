@@ -37,3 +37,34 @@ class TickData:
     ohlc_close: Optional[float] = None
     change: Optional[float] = None
     depth: Optional[OrderDepth] = None
+
+
+@dataclass
+class EnrichedTick:
+    """
+    Represents a raw tick that has been enriched with calculated features.
+    Contains all fields from TickData plus new ones.
+    """
+    # --- Original TickData Fields ---
+    timestamp: datetime
+    instrument_token: int
+    stock_name: str
+    last_price: Optional[float]
+    average_traded_price: Optional[float]
+    volume_traded: Optional[int]
+    total_buy_quantity: Optional[int]
+    total_sell_quantity: Optional[int]
+    ohlc_open: Optional[float]
+    ohlc_high: Optional[float]
+    ohlc_low: Optional[float]
+    ohlc_close: Optional[float]
+    change: Optional[float]
+    depth: Optional[OrderDepth]
+
+    # --- Enriched Fields ---
+    tick_volume: int = 0
+    trade_sign: int = 0
+    is_large_trade: bool = False
+    # --- Placeholders for future features ---
+    is_sell_absorption: bool = False
+    is_buy_absorption: bool = False

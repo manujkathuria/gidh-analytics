@@ -1,15 +1,16 @@
-# wealth-wave-ventures/gidh-analytics/wealth-wave-ventures-gidh-analytics-5ad4a7c6bd53291eeab53ca042856af359c2ca1f/service/pipeline.py
 import asyncio
 import asyncpg
 from collections import deque
+from datetime import timedelta
 
-from service.db_schema import setup_schema
-# Import from our new service modules
+from service.db_schema import setup_schema, truncate_tables_if_needed
 from service.logger import log
 import service.config as config
 from service.parameters import INSTRUMENT_MAP
-from service.file_reader import FileReader  # Import the new FileReader
-import service.db_writer as db_writer  # Import the new db_writer
+from service.file_reader import FileReader
+import service.db_writer as db_writer
+from service.feature_enricher import FeatureEnricher  # Import the new enricher
+from service.models import EnrichedTick  # Import the new model
 
 
 class DataPipeline:
@@ -25,16 +26,25 @@ class DataPipeline:
         self.instruments = list(INSTRUMENT_MAP.values())
         self.instrument_map = INSTRUMENT_MAP
         self.db_pool = None
-        self.kws = None
-        self.data_window = deque(maxlen=3600)
-        self.db_queue = asyncio.Queue()
+
+        # --- Pipeline Queues ---
+        self.raw_tick_queue = asyncio.Queue()
+        self.enriched_tick_queue = asyncio.Queue()
+
+        # --- In-Memory Data Window for Enriched Ticks ---
+        self.data_window = deque()
+        self.data_window_seconds = config.DATA_WINDOW_MINUTES * 60
+
+        # --- Pipeline Components ---
+        self.feature_enricher = FeatureEnricher()
+
         # Batching configuration
         self.batch_size = 1000
         self.batch_interval = 5  # seconds
         log.info(f"DataPipeline initialized in '{self.mode}' mode for {len(self.instruments)} instruments.")
 
     async def initialize_db(self):
-        """Creates an asyncpg connection pool and ensures tables are set up."""
+        """Creates an asyncpg connection pool, truncates tables if needed, and ensures schema is set up."""
         try:
             self.db_pool = await asyncpg.create_pool(
                 user=config.DB_USER,
@@ -44,99 +54,144 @@ class DataPipeline:
                 database=config.DB_NAME
             )
             log.info(f"Successfully connected to the database '{config.DB_NAME}'.")
-            # Ensure the necessary tables and hypertables exist.
+            await truncate_tables_if_needed(self.db_pool)
             await setup_schema(self.db_pool)
         except Exception as e:
             log.error(f"Failed to connect to or initialize the database: {e}")
             raise
 
+    async def enricher_coroutine(self):
+        """
+        Coroutine that consumes raw ticks, enriches them, and passes them on.
+        This is now wrapped in a try/except block to prevent a single bad tick
+        from crashing the entire pipeline.
+        """
+        log.info("Enricher coroutine started.")
+        while True:
+            raw_tick = await self.raw_tick_queue.get()
+
+            try:
+                # Enrich the raw tick using our new component
+                enriched_tick = self.feature_enricher.enrich_tick(raw_tick, self.data_window)
+
+                # --- Manage the in-memory data window ---
+                current_timestamp = enriched_tick.timestamp
+                self.data_window.append((current_timestamp, enriched_tick))
+                while self.data_window and (
+                        current_timestamp - self.data_window[0][0]).total_seconds() > self.data_window_seconds:
+                    self.data_window.popleft()
+
+                # Put the enriched tick onto the next queue for the DB writer
+                await self.enriched_tick_queue.put(enriched_tick)
+
+            except Exception as e:
+                log.error(f"Failed to enrich tick for {raw_tick.stock_name} at {raw_tick.timestamp}: {e}",
+                          exc_info=True)
+
+            finally:
+                # CRITICAL: Ensure task_done() is always called, even if an error occurs.
+                # This prevents the pipeline from deadlocking on queue.join().
+                self.raw_tick_queue.task_done()
+
     async def db_writer_coroutine(self):
         """
-        Coroutine that collects data from the queue and writes to the DB in batches.
+        Coroutine that consumes enriched ticks and writes them to the DB in batches.
         """
         log.info("DB writer coroutine started.")
         ticks_batch = []
         last_write_time = asyncio.get_event_loop().time()
 
-        while True:
-            try:
-                # Wait for an item from the queue, but with a timeout
-                timeout = max(0, self.batch_interval - (asyncio.get_event_loop().time() - last_write_time))
-                item = await asyncio.wait_for(self.db_queue.get(), timeout=timeout)
+        try:
+            while True:
+                try:
+                    # Calculate timeout for waiting on the queue
+                    timeout = max(0, self.batch_interval - (asyncio.get_event_loop().time() - last_write_time))
+                    enriched_tick = await asyncio.wait_for(self.enriched_tick_queue.get(), timeout=timeout)
+                    ticks_batch.append(enriched_tick)
+                    self.enriched_tick_queue.task_done()
 
-                # Add item to the appropriate batch
-                if item['type'] == 'tick':
-                    ticks_batch.append(item['data'])
+                except asyncio.TimeoutError:
+                    # This is not an error, just a signal to check if we should write the batch
+                    pass
 
-                self.db_queue.task_done()
-
-            except asyncio.TimeoutError:
-                # Timeout reached, process whatever is in the batch
-                pass
-
-            # Write to DB if a batch is full or the time interval has passed
-            time_since_last_write = asyncio.get_event_loop().time() - last_write_time
-            if (len(ticks_batch) >= self.batch_size or
-                    (time_since_last_write >= self.batch_interval and ticks_batch)):
-
-                if ticks_batch:
-                    # Create a list of ticks that have depth data
+                # Check if it's time to write the batch
+                time_since_last_write = asyncio.get_event_loop().time() - last_write_time
+                if len(ticks_batch) >= self.batch_size or (
+                        time_since_last_write >= self.batch_interval and ticks_batch):
+                    log.info(f"Writing batch of {len(ticks_batch)} ticks to DB...")
                     ticks_with_depth = [t for t in ticks_batch if t.depth]
 
-                    # Insert all ticks
                     await db_writer.batch_insert_ticks(self.db_pool, ticks_batch)
-
-                    # Insert order depth data for ticks that have it
                     if ticks_with_depth:
                         await db_writer.batch_insert_order_depths(self.db_pool, ticks_with_depth)
 
                     ticks_batch.clear()
+                    last_write_time = asyncio.get_event_loop().time()
 
-                last_write_time = asyncio.get_event_loop().time()
+        except asyncio.CancelledError:
+            # This is expected during shutdown.
+            log.info("DB writer coroutine is being cancelled.")
 
-    def setup_websocket(self):
-        """Placeholder for setting up the Kite Ticker WebSocket client."""
-        log.info("Placeholder for: `setup_websocket`")
-        pass
+        finally:
+            # --- CRITICAL: Write any remaining items in the batch before exiting ---
+            if ticks_batch:
+                log.warning(f"Writing final batch of {len(ticks_batch)} ticks before shutdown.")
+                ticks_with_depth = [t for t in ticks_batch if t.depth]
+
+                await db_writer.batch_insert_ticks(self.db_pool, ticks_batch)
+                if ticks_with_depth:
+                    await db_writer.batch_insert_order_depths(self.db_pool, ticks_with_depth)
+
+                ticks_batch.clear()
+            log.info("DB writer coroutine finished cleanup.")
 
     async def start_data_source(self):
         """Starts the data source based on the selected mode."""
         log.info(f"Attempting to start data source in '{self.mode}' mode.")
         if self.mode == 'realtime':
-            await self.start_websocket()
+            # await self.start_websocket() # Placeholder
+            pass
         elif self.mode == 'backtesting':
             await self.start_file_reader()
         else:
             log.error(f"Invalid mode specified: {self.mode}")
             raise ValueError(f"Invalid mode: {self.mode}")
 
-    async def start_websocket(self):
-        """Placeholder for starting the Kite Ticker WebSocket connection."""
-        log.info("Placeholder for: `start_websocket`")
-        pass
-
     async def start_file_reader(self):
         """Initializes and runs the file reader for backtesting."""
         log.info("Starting file reader for backtesting.")
         file_reader = FileReader()
-        # The stream_ticks method will run and put data into our queue
-        await file_reader.stream_ticks(self.db_queue)
+        # The file reader now puts data into the raw_tick_queue
+        await file_reader.stream_ticks(self.raw_tick_queue)
 
     async def run(self):
         """The main entry point for the data pipeline."""
         log.info("Starting pipeline run...")
         await self.initialize_db()
 
+        # Create tasks for each pipeline stage
+        enricher_task = asyncio.create_task(self.enricher_coroutine())
         writer_task = asyncio.create_task(self.db_writer_coroutine())
+        all_tasks = [enricher_task, writer_task]
 
         try:
             await self.start_data_source()
-            # Wait for the queue to be fully processed after the source is done
-            await self.db_queue.join()
+            # Wait for queues to be fully processed
+            await self.raw_tick_queue.join()
+            await self.enriched_tick_queue.join()
+
+        except Exception as e:
+            log.error(f"An unhandled exception occurred in the main run loop: {e}", exc_info=True)
+
         finally:
             log.info("Shutting down data pipeline...")
-            writer_task.cancel()
-            await asyncio.gather(writer_task, return_exceptions=True)
+            log.info(f"Final in-memory data window size: {len(self.data_window)} ticks.")
+
+            # Gracefully cancel all background tasks
+            for task in all_tasks:
+                task.cancel()
+            await asyncio.gather(*all_tasks, return_exceptions=True)
+
             if self.db_pool:
                 await self.db_pool.close()
                 log.info("Database connection pool closed.")
