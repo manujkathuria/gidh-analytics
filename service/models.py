@@ -12,6 +12,9 @@ class DepthLevel:
 @dataclass
 class OrderDepth:
     """Holds the buy (bid) and sell (ask) sides of the order book depth."""
+    timestamp: datetime
+    stock_name: str
+    instrument_token: int
     buy: List[DepthLevel] = field(default_factory=list)
     sell: List[DepthLevel] = field(default_factory=list)
 
