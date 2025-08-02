@@ -31,6 +31,12 @@
     },
     {
       "type": "panel",
+      "id": "heatmap",
+      "name": "Heatmap",
+      "version": ""
+    },
+    {
+      "type": "panel",
       "id": "timeseries",
       "name": "Time series",
       "version": ""
@@ -150,7 +156,7 @@
         ]
       },
       "gridPos": {
-        "h": 8,
+        "h": 9,
         "w": 14,
         "x": 0,
         "y": 0
@@ -280,12 +286,12 @@
         ]
       },
       "gridPos": {
-        "h": 9,
+        "h": 7,
         "w": 10,
         "x": 14,
         "y": 0
       },
-      "id": 2,
+      "id": 11,
       "options": {
         "legend": {
           "calcs": [],
@@ -394,10 +400,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 14,
-        "x": 0,
-        "y": 8
+        "h": 6,
+        "w": 10,
+        "x": 14,
+        "y": 7
       },
       "id": 6,
       "options": {
@@ -446,6 +452,105 @@
       ],
       "title": "MFI & RSI",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_GIDH_ANALYTICS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 0,
+        "y": 9
+      },
+      "id": 9,
+      "options": {
+        "calculate": false,
+        "cellGap": 2,
+        "color": {
+          "exponent": 0.5,
+          "fill": "dark-orange",
+          "max": 1,
+          "min": -1,
+          "mode": "scheme",
+          "reverse": true,
+          "scale": "exponential",
+          "scheme": "RdYlGn",
+          "steps": 5
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "ge": 2,
+          "le": -2
+        },
+        "legend": {
+          "show": true
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "tooltip": {
+          "mode": "single",
+          "showColorScale": false,
+          "yHistogram": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "reverse": false,
+          "unit": ""
+        }
+      },
+      "pluginVersion": "11.5.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "-- This query selects the time and the divergence score for the heatmap\nSELECT\n  timestamp AS \"time\",\n  div_price_rsi as rsi,\n  div_price_mfi as mfi,\n  div_price_obv as obv,\n  div_price_cvd as cvd,\n  div_price_lvc as lvc\nFROM\n  public.grafana_features_view\nWHERE\n  $__timeFilter(timestamp) AND\n  stock_name = '${stock_name}' AND\n  interval = '${interval}'\nORDER BY\n  timestamp ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Price Dvergence",
+      "type": "heatmap"
     },
     {
       "datasource": {
@@ -524,10 +629,10 @@
         ]
       },
       "gridPos": {
-        "h": 8,
+        "h": 6,
         "w": 10,
         "x": 14,
-        "y": 9
+        "y": 13
       },
       "id": 5,
       "options": {
@@ -654,10 +759,10 @@
         ]
       },
       "gridPos": {
-        "h": 8,
+        "h": 7,
         "w": 14,
         "x": 0,
-        "y": 16
+        "y": 18
       },
       "id": 3,
       "options": {
@@ -731,10 +836,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 7,
+        "h": 6,
         "w": 3,
-        "x": 21,
-        "y": 17
+        "x": 14,
+        "y": 19
       },
       "id": 7,
       "options": {
@@ -763,6 +868,222 @@
           "format": "table",
           "rawQuery": true,
           "rawSql": "-- Query for the day's High and Low\nSELECT\n  'range' as metric,\n  MIN(last_price) AS min_price,\n  MAX(last_price) AS max_price,\n  NULL AS current_price\nFROM public.live_ticks\nWHERE\n  stock_name = '${stock_name}' AND $__timeFilter(timestamp)\n\nUNION ALL\n\n-- Query for the latest price\n(SELECT\n  'current' as metric,\n  NULL,\n  NULL,\n  last_price\nFROM public.live_ticks\nWHERE\n  stock_name = '${stock_name}' AND $__timeFilter(timestamp)\nORDER BY timestamp DESC\nLIMIT 1);",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_GIDH_ANALYTICS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 1,
+          "min": -1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "super-light-red",
+                "value": -0.7
+              },
+              {
+                "color": "super-light-green",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.7
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cvd_30m"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 3,
+        "x": 17,
+        "y": 19
+      },
+      "id": 8,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^volume_divergence_score$/",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "pluginVersion": "11.5.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH ordered_bars AS (\n  SELECT\n    timestamp AS time,\n    (COALESCE(div_price_lvc, 0) + COALESCE(div_price_cvd, 0) + COALESCE(div_price_obv, 0)) / 3.0 AS volume_divergence_score,\n    ROW_NUMBER() OVER (ORDER BY timestamp DESC) AS row_num\n  FROM grafana_features_view\n  WHERE\n    $__timeFilter(timestamp)\n    AND stock_name = '${stock_name}'\n    AND interval = '${interval}'\n)\nSELECT time, volume_divergence_score\nFROM ordered_bars\nWHERE row_num = 2\n",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_GIDH_ANALYTICS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 1,
+          "min": -1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "super-light-red",
+                "value": -0.7
+              },
+              {
+                "color": "super-light-green",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.7
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cvd_30m"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 3,
+        "x": 20,
+        "y": 19
+      },
+      "id": 10,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^momentum_divergence_score$/",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "pluginVersion": "11.5.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH ranked_rows AS (\n  SELECT\n    timestamp AS time,\n    (COALESCE(div_price_mfi, 0) + COALESCE(div_price_rsi, 0)) / 2.0 AS momentum_divergence_score,\n    ROW_NUMBER() OVER (ORDER BY timestamp DESC) AS row_num\n  FROM grafana_features_view \n  WHERE\n    $__timeFilter(timestamp)\n    AND stock_name = '${stock_name}'\n    AND interval = '${interval}'\n)\nSELECT time, momentum_divergence_score\nFROM ranked_rows\nWHERE row_num = 2\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -865,7 +1186,7 @@
         "h": 8,
         "w": 14,
         "x": 0,
-        "y": 24
+        "y": 25
       },
       "id": 4,
       "options": {
@@ -916,7 +1237,7 @@
       "type": "timeseries"
     }
   ],
-  "refresh": "",
+  "refresh": "5s",
   "schemaVersion": 40,
   "tags": [],
   "templating": {
@@ -975,13 +1296,13 @@
     ]
   },
   "time": {
-    "from": "2025-07-31T03:33:23.150Z",
-    "to": "2025-07-31T09:26:24.857Z"
+    "from": "2025-08-01T03:45:03.710Z",
+    "to": "2025-08-01T10:01:04.931Z"
   },
   "timepicker": {},
   "timezone": "browser",
   "title": "📊📡 GIDH Analytics",
   "uid": "eeqs0lfrel6v4c",
-  "version": 2,
+  "version": 5,
   "weekStart": ""
 }

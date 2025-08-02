@@ -182,7 +182,7 @@ class BarAggregator:
         return prev_obv
 
     def _calculate_mfi(self, high: float, low: float, close: float, volume: int) -> float:
-        
+
         if not self.bar_history:
             return 50.0
 
@@ -192,8 +192,10 @@ class BarAggregator:
         raw_money_flow = typical_price * volume
         self.money_flow_history.append((raw_money_flow, 1 if typical_price > prev_typical_price else -1))
 
-        if len(self.money_flow_history) < INDICATOR_PERIOD:
-            return 50.0
+        # This check is what causes the delay.
+        # By removing it, MFI will be calculated with the available data from the start.
+        # if len(self.money_flow_history) < INDICATOR_PERIOD:
+        #     return 50.0
 
         positive_flow = sum(flow for flow, sign in self.money_flow_history if sign == 1)
         negative_flow = sum(flow for flow, sign in self.money_flow_history if sign == -1)
