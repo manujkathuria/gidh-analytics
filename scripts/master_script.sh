@@ -72,19 +72,13 @@ run_login_script() {
     echo "Running login script interactively..."
     cd "${SCRIPTS_DIR}" || { echo "Error: Could not cd to ${SCRIPTS_DIR}"; return 1; }
 
-    if [ -d "${VENV_DIR}" ]; then
+    if [ ! -d "${VENV_DIR}" ]; then
+        echo "Virtual environment not found, creating one..."
+        python3 -m venv "${VENV_DIR}"
         source "${VENV_DIR}/bin/activate"
-        python login.py
-        STATUS=$?
+        pip install -U pip
+        pip install -r "${ROOT_PATH}/requirements.txt" 2>/dev/null || echo "No requirements.txt found"
         deactivate
-        if [ $STATUS -ne 0 ]; then
-            echo "❌ Login script exited with error code $STATUS"
-        else
-            echo "✅ Login completed successfully."
-        fi
-    else
-        echo "Error: Virtual environment not found at ${VENV_DIR}"
-        return 1
     fi
 
     cd - > /dev/null
