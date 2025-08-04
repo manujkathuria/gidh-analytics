@@ -47,7 +47,7 @@ class WebSocketClient:
     def _parse_tick(self, tick_dict: Dict) -> TickData:
         """
         Parses a raw tick dictionary from Kite into a TickData object,
-        ensuring the timestamp is valid and converted to UTC.
+        including order book depth, and ensures the timestamp is in UTC.
         """
         token = tick_dict.get('instrument_token')
         stock_name = self.instrument_token_to_name.get(token)
@@ -56,6 +56,32 @@ class WebSocketClient:
             log.warning(f"Received tick for unknown instrument token: {token}")
             return None
 
+        # ** FIX: Parse the depth data, mirroring the Go implementation **
+        depth_data = None
+        if 'depth' in tick_dict and tick_dict['depth']:
+            try:
+                depth_data = OrderDepth(
+                    timestamp=datetime.now(timezone.utc),
+                    stock_name=stock_name,
+                    instrument_token=token,
+                    buy=[
+                        DepthLevel(
+                            price=d['price'],
+                            quantity=d['quantity'],
+                            orders=d.get('orders', 0)
+                        ) for d in tick_dict['depth']['buy']
+                    ],
+                    sell=[
+                        DepthLevel(
+                            price=d['price'],
+                            quantity=d['quantity'],
+                            orders=d.get('orders', 0)
+                        ) for d in tick_dict['depth']['sell']
+                    ]
+                )
+            except (KeyError, TypeError) as e:
+                log.error(f"Error parsing depth data for {stock_name}: {e} - Data: {tick_dict.get('depth')}")
+                depth_data = None # Ensure depth is None if parsing fails
 
         return TickData(
             timestamp=datetime.now(timezone.utc),
@@ -72,14 +98,15 @@ class WebSocketClient:
             ohlc_low=tick_dict.get('ohlc', {}).get('low'),
             ohlc_close=tick_dict.get('ohlc', {}).get('close'),
             change=tick_dict.get('change'),
-            depth=None
+            depth=depth_data # Assign the parsed depth data
         )
 
     def on_ticks(self, ws, ticks: List[Dict]):
         """Callback function to receive ticks."""
         now_ist = datetime.now(self.ist_tz).time()
-        if not self.trading_start_time <= now_ist <= self.trading_end_time:
-            return  # Silently drop ticks outside of trading hours
+        # ** FIX: Silently drop ticks outside of trading hours **
+        if not (self.trading_start_time <= now_ist <= self.trading_end_time):
+            return
 
         log.debug(f"Received a batch of {len(ticks)} ticks.")
         if not self.loop.is_running():
@@ -101,7 +128,6 @@ class WebSocketClient:
 
     def on_close(self, ws, code, reason):
         """Callback on connection close."""
-        # --- IGNORE 1006 ON MANUAL SHUTDOWN ---
         if code == 1006:
             log.info(f"WebSocket connection closed uncleanly (Code: {code}). This is expected during shutdown.")
         else:
@@ -109,7 +135,6 @@ class WebSocketClient:
 
     def on_error(self, ws, code, reason):
         """Callback on connection error."""
-        # --- IGNORE 1006 ON MANUAL SHUTDOWN ---
         if code == 1006:
             log.warning(f"WebSocket handshake timeout (Code: {code}). This is expected during shutdown.")
         else:
