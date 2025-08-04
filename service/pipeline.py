@@ -1,3 +1,4 @@
+# service/pipeline.py
 import asyncio
 import asyncpg
 from collections import deque
@@ -9,9 +10,9 @@ from service.logger import log
 import service.config as config
 from service.parameters import INSTRUMENT_MAP
 from service.file_reader import FileReader
+from service.websocket_client import WebSocketClient
 import service.db_writer as db_writer
 from service.feature_enricher import FeatureEnricher
-from service.models import EnrichedTick
 
 
 class DataPipeline:
@@ -28,25 +29,28 @@ class DataPipeline:
         self.instrument_map = INSTRUMENT_MAP
         self.db_pool = None
 
-        # --- Pipeline Queues ---
+        # --- Pipeline Queues & Events ---
         self.raw_tick_queue = asyncio.Queue()
-        self.enriched_tick_queue = asyncio.Queue()
+        # Event to signal shutdown
+        self._shutdown_event = asyncio.Event()
 
         # --- In-Memory Data Window for Enriched Ticks ---
         self.data_window = deque()
         self.data_window_seconds = config.DATA_WINDOW_MINUTES * 60
 
         # --- Pipeline Components ---
+        self.websocket_client = None
+        if self.mode == 'realtime':
+            loop = asyncio.get_event_loop()
+            self.websocket_client = WebSocketClient(self.raw_tick_queue, self.instrument_map, loop)
+
         self.feature_enricher = FeatureEnricher()
-        self.bar_aggregator_processor = BarAggregatorProcessor() # Add this
+        self.bar_aggregator_processor = BarAggregatorProcessor()
 
         # Batching configuration
         self.tick_batch_size = 1000
         self.bar_batch_size = 100
         self.batch_interval = 2  # seconds
-
-        # Counter for printing enriched ticks
-        self.enriched_tick_print_counter = 0
         log.info(f"DataPipeline initialized in '{self.mode}' mode for {len(self.instruments)} instruments.")
 
     async def initialize_db(self):
@@ -68,11 +72,7 @@ class DataPipeline:
 
     async def processor_and_writer_coroutine(self):
         """
-        A single, powerful coroutine that consumes raw ticks and handles:
-        1. Feature Enrichment
-        2. Writing enriched ticks & depth to DB
-        3. Bar Aggregation
-        4. Writing feature bars to DB
+        A single, powerful coroutine that consumes raw ticks and handles processing.
         """
         log.info("Primary processor and writer coroutine started.")
 
@@ -80,46 +80,47 @@ class DataPipeline:
         bar_batch = []
         last_write_time = asyncio.get_event_loop().time()
 
-        while True:
+        while not self._shutdown_event.is_set():
             try:
-                # 1. Get raw tick from the queue
-                raw_tick_message = await self.raw_tick_queue.get()
-                raw_tick = raw_tick_message.get('data')
+                # Wait for an item with a timeout, allowing the loop to check for shutdown
+                raw_tick_message = await asyncio.wait_for(self.raw_tick_queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue  # No item received, loop again to check shutdown event
 
-                # 2. Enrich the tick
+            try:
+                raw_tick = raw_tick_message.get('data')
+                if not raw_tick: continue
+
+                # Enrich the tick
                 enriched_tick = self.feature_enricher.enrich_tick(raw_tick, self.data_window)
                 tick_batch.append(enriched_tick)
 
-                # 3. Manage the global data window
+                # Manage the global data window
                 current_timestamp = enriched_tick.timestamp
                 self.data_window.append((current_timestamp, enriched_tick))
-                while self.data_window and (
-                        current_timestamp - self.data_window[0][0]).total_seconds() > self.data_window_seconds:
+                while self.data_window and \
+                        (current_timestamp - self.data_window[0][0]).total_seconds() > self.data_window_seconds:
                     self.data_window.popleft()
 
-                # 4. Process with the bar aggregator
+                # Process with the bar aggregator
                 updated_bars = self.bar_aggregator_processor.process_tick(enriched_tick)
                 if updated_bars:
                     bar_batch.extend(updated_bars)
 
-                # 5. Check if it's time to write batches to DB
+                # Check if it's time to write batches to DB
                 time_since_last_write = asyncio.get_event_loop().time() - last_write_time
                 if (len(tick_batch) >= self.tick_batch_size or
                         len(bar_batch) >= self.bar_batch_size or
                         time_since_last_write >= self.batch_interval):
 
-                    # Write ticks and depth
                     if tick_batch:
-                        log.info(f"Writing batch of {len(tick_batch)} ticks to DB...")
-                        ticks_with_depth = [t for t in tick_batch if t.depth]
                         await db_writer.batch_insert_ticks(self.db_pool, tick_batch)
+                        ticks_with_depth = [t for t in tick_batch if t.depth]
                         if ticks_with_depth:
                             await db_writer.batch_insert_order_depths(self.db_pool, ticks_with_depth)
                         tick_batch.clear()
 
-                    # Write feature bars
                     if bar_batch:
-                        log.info(f"Writing batch of {len(bar_batch)} feature bars to DB...")
                         await db_writer.batch_upsert_features(self.db_pool, bar_batch)
                         bar_batch.clear()
 
@@ -128,19 +129,26 @@ class DataPipeline:
             except Exception as e:
                 log.error(f"Error in processor coroutine: {e}", exc_info=True)
             finally:
+                # Mark the task as done *only* after it's been processed
                 self.raw_tick_queue.task_done()
 
     async def start_data_source(self):
         """Starts the data source based on the selected mode."""
         log.info(f"Attempting to start data source in '{self.mode}' mode.")
         if self.mode == 'realtime':
-            # await self.start_websocket() # Placeholder
-            pass
+            self.start_websocket()
         elif self.mode == 'backtesting':
             await self.start_file_reader()
         else:
             log.error(f"Invalid mode specified: {self.mode}")
             raise ValueError(f"Invalid mode: {self.mode}")
+
+    def start_websocket(self):
+        """Initializes and connects the WebSocket client."""
+        if self.websocket_client:
+            self.websocket_client.connect()
+        else:
+            log.error("WebSocket client not initialized. Check pipeline mode.")
 
     async def start_file_reader(self):
         """Initializes and runs the file reader for backtesting."""
@@ -153,26 +161,33 @@ class DataPipeline:
         log.info("Starting pipeline run...")
         await self.initialize_db()
 
-        # Create tasks for each pipeline stage
         processor_task = asyncio.create_task(self.processor_and_writer_coroutine())
         attach_task_monitor(processor_task, "Processor and Writer")
 
-        # Start the data source in a separate task
         data_source_task = asyncio.create_task(self.start_data_source())
 
         try:
-            # Wait for the data source to finish
-            await data_source_task
-            log.info("Data source finished. Waiting for queue to empty...")
-            await self.raw_tick_queue.join()
-            log.info("Queue is empty.")
+            if self.mode == 'backtesting':
+                await data_source_task
+                log.info("Data source finished. Waiting for queue to empty...")
+                await self.raw_tick_queue.join()
+                log.info("Queue is empty.")
+            else:  # Realtime mode
+                log.info("Running in real-time mode. Press Ctrl+C to exit.")
+                await self._shutdown_event.wait()  # Wait here indefinitely until event is set
 
-        except Exception as e:
-            log.error(f"An unhandled exception occurred in the main run loop: {e}", exc_info=True)
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            log.info("Application interrupted by user.")
 
         finally:
             log.info("Shutting down data pipeline...")
-            # Gracefully cancel the processor task
+            self._shutdown_event.set()  # Signal all coroutines to stop
+
+            if self.websocket_client:
+                self.websocket_client.close()
+
+            # Wait for the processor to finish handling any remaining items
+            await asyncio.sleep(1)  # Give it a moment to finish up
             processor_task.cancel()
             await asyncio.gather(processor_task, return_exceptions=True)
 
@@ -187,6 +202,9 @@ def attach_task_monitor(task, name):
         if t.cancelled():
             log.warning(f"{name} task was cancelled.")
         elif t.exception():
-            log.error(f"{name} task crashed: {t.exception()}", exc_info=True)
+            exc = t.exception()
+            # Avoid logging the "task_done" error as it's an expected part of shutdown now
+            if not isinstance(exc, asyncio.CancelledError):
+                log.error(f"{name} task crashed: {exc}", exc_info=True)
 
     task.add_done_callback(cb)

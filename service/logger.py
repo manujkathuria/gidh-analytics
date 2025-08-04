@@ -10,6 +10,8 @@ def setup_logger():
     log messages have a consistent format and destination.
     """
     # Get a logger instance with a specific name
+    logging.getLogger("kiteconnect").setLevel(logging.CRITICAL)
+
     logger = logging.getLogger("DataPipelineLogger")
     logger.setLevel(logging.INFO) # Set the minimum level of messages to handle
 
