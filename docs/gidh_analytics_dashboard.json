@@ -759,7 +759,7 @@
         ]
       },
       "gridPos": {
-        "h": 7,
+        "h": 6,
         "w": 14,
         "x": 0,
         "y": 18
@@ -836,7 +836,7 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 3,
         "x": 14,
         "y": 19
@@ -944,7 +944,7 @@
         ]
       },
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 3,
         "x": 17,
         "y": 19
@@ -996,6 +996,7 @@
           }
         }
       ],
+      "title": "Volume Meter",
       "type": "gauge"
     },
     {
@@ -1052,7 +1053,7 @@
         ]
       },
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 3,
         "x": 20,
         "y": 19
@@ -1104,6 +1105,7 @@
           }
         }
       ],
+      "title": "Momentum Meter",
       "type": "gauge"
     },
     {
@@ -1186,7 +1188,7 @@
         "h": 8,
         "w": 14,
         "x": 0,
-        "y": 25
+        "y": 24
       },
       "id": 4,
       "options": {
@@ -1296,13 +1298,13 @@
     ]
   },
   "time": {
-    "from": "2025-08-01T03:45:03.710Z",
-    "to": "2025-08-01T10:01:04.931Z"
+    "from": "now-30m",
+    "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
   "title": "📊📡 GIDH Analytics",
   "uid": "eeqs0lfrel6v4c",
-  "version": 5,
+  "version": 2,
   "weekStart": ""
 }
