@@ -68,6 +68,28 @@ stop_python_app() {
     fi
 }
 
+run_login_script() {
+    echo "Running login script interactively..."
+    cd "${SCRIPTS_DIR}" || { echo "Error: Could not cd to ${SCRIPTS_DIR}"; return 1; }
+
+    if [ -d "${VENV_DIR}" ]; then
+        source "${VENV_DIR}/bin/activate"
+        python login.py
+        STATUS=$?
+        deactivate
+        if [ $STATUS -ne 0 ]; then
+            echo "❌ Login script exited with error code $STATUS"
+        else
+            echo "✅ Login completed successfully."
+        fi
+    else
+        echo "Error: Virtual environment not found at ${VENV_DIR}"
+        return 1
+    fi
+
+    cd - > /dev/null
+}
+
 run_backup() {
     echo "Starting database backup script..."
     cd "${SCRIPTS_DIR}" || { echo "Error: Could not cd to ${SCRIPTS_DIR}"; return 1; }
@@ -111,6 +133,9 @@ case "$1" in
     stop)
         stop_python_app >> "${LOG_DIR}/stop.log" 2>&1
         ;;
+    login)
+        run_login_script
+        ;;
     backup)
         run_backup
         ;;
@@ -118,7 +143,7 @@ case "$1" in
         truncate_tables
         ;;
     *)
-        echo "Usage: $0 {start|stop|backup|truncate}"
+        echo "Usage: $0 {start|stop|login|backup|truncate}"
         exit 1
         ;;
 esac
