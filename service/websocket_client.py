@@ -1,7 +1,8 @@
 # service/websocket_client.py
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from typing import Dict, List
+import pytz
 
 from kiteconnect import KiteTicker
 
@@ -29,6 +30,11 @@ class WebSocketClient:
         self.loop = loop
         self.tokens = list(instrument_map.values())
         self.instrument_token_to_name = {v: k for k, v in instrument_map.items()}
+
+        # --- Timezone and Trading Hours Configuration ---
+        self.ist_tz = pytz.timezone('Asia/Kolkata')
+        self.trading_start_time = time(9, 15)
+        self.trading_end_time = time(15, 30)
 
         # Assign all the callbacks
         self.kws.on_ticks = self.on_ticks
@@ -71,6 +77,10 @@ class WebSocketClient:
 
     def on_ticks(self, ws, ticks: List[Dict]):
         """Callback function to receive ticks."""
+        now_ist = datetime.now(self.ist_tz).time()
+        if not self.trading_start_time <= now_ist <= self.trading_end_time:
+            return  # Silently drop ticks outside of trading hours
+
         log.debug(f"Received a batch of {len(ticks)} ticks.")
         if not self.loop.is_running():
             log.warning("Event loop is not running. Cannot queue ticks.")
