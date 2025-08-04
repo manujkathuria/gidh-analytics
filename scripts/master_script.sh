@@ -78,9 +78,13 @@ run_login_script() {
         source "${VENV_DIR}/bin/activate"
         pip install -U pip
         pip install -r "${ROOT_PATH}/requirements.txt" 2>/dev/null || echo "No requirements.txt found"
-        deactivate
+    else
+        source "${VENV_DIR}/bin/activate"
     fi
 
+    python login.py
+
+    deactivate
     cd - > /dev/null
 }
 
