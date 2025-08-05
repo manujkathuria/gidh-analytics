@@ -24,16 +24,18 @@ class BarAggregator:
 
         self.building_bar: Optional[BarData] = None
         self.bar_total_price_volume: float = 0.0
-        self.bar_count: int = 0
 
         self.bar_history: Deque[BarData] = deque(maxlen=200)
         self.delta_history_5m: Deque[int] = deque(maxlen=int(5 / (interval.total_seconds() / 60)))
         self.delta_history_10m: Deque[int] = deque(maxlen=int(10 / (interval.total_seconds() / 60)))
         self.delta_history_30m: Deque[int] = deque(maxlen=int(30 / (interval.total_seconds() / 60)))
 
+        # --- State for RSI ---
         self.avg_gain: float = 0.0
         self.avg_loss: float = 0.0
+        self.is_rsi_initialized: bool = False
 
+        # --- State for MFI ---
         self.money_flow_history: Deque[Tuple[float, float]] = deque(maxlen=INDICATOR_PERIOD)
 
         self.pattern_detector = PatternDetector()
@@ -50,52 +52,22 @@ class BarAggregator:
         if not self.building_bar or self.building_bar.timestamp != bar_timestamp:
             if self.building_bar:
                 completed_bar = self._finalize_bar()
-
             self._start_new_bar(bar_timestamp, tick)
 
-        self._update_bar(tick)
+        self._update_bar_data(tick)
         return completed_bar
 
     def _start_new_bar(self, bar_timestamp: datetime, tick: EnrichedTick):
-        self.bar_count += 1
         self.building_bar = BarData(
-            timestamp=bar_timestamp,
-            stock_name=self.stock_name,
-            instrument_token=self.instrument_token,
-            interval=self.interval_str,
-            open=tick.last_price,
-            high=tick.last_price,
-            low=tick.last_price,
-            close=tick.last_price,
-            volume=0,
-            bar_vwap=0.0,
-            session_vwap=tick.average_traded_price,
-            bar_count=self.bar_count
+            timestamp=bar_timestamp, stock_name=self.stock_name, instrument_token=self.instrument_token,
+            interval=self.interval_str, open=tick.last_price, high=tick.last_price, low=tick.last_price,
+            close=tick.last_price, volume=0, bar_vwap=0.0, session_vwap=tick.average_traded_price,
+            bar_count=len(self.bar_history) + 1, raw_scores={}
         )
         self.bar_total_price_volume = 0.0
+        self._recalculate_bar_features()  # Calculate initial features for the new bar
 
-        last_rsi, last_obv, last_mfi, last_lvc_delta = 50.0, 0, 50.0, 0
-        if self.bar_history:
-            last_scores = self.bar_history[-1].raw_scores
-            last_rsi = last_scores.get('rsi', 50.0)
-            last_obv = last_scores.get('obv', 0)
-            last_mfi = last_scores.get('mfi', 50.0)
-            last_lvc_delta = last_scores.get('lvc_delta', 0)
-
-        self.building_bar.raw_scores = {
-            'bar_delta': 0,
-            'large_buy_volume': 0,
-            'large_sell_volume': 0,
-            'passive_buy_volume': 0,
-            'passive_sell_volume': 0,
-            'rsi': last_rsi,
-            'obv': last_obv,
-            'mfi': last_mfi,
-            'lvc_delta': last_lvc_delta,
-            'divergence': {}
-        }
-
-    def _update_bar(self, tick: EnrichedTick):
+    def _update_bar_data(self, tick: EnrichedTick):
         bar = self.building_bar
         if tick.last_price > bar.high: bar.high = tick.last_price
         if tick.last_price < bar.low: bar.low = tick.last_price
@@ -105,135 +77,121 @@ class BarAggregator:
         if tick.tick_volume > 0:
             bar.volume += tick.tick_volume
             self.bar_total_price_volume += tick.last_price * tick.tick_volume
-            if bar.volume > 0:
-                bar.bar_vwap = self.bar_total_price_volume / bar.volume
+            if bar.volume > 0: bar.bar_vwap = self.bar_total_price_volume / bar.volume
 
             scores = bar.raw_scores
-            scores['bar_delta'] += tick.tick_volume * tick.trade_sign
+            scores['bar_delta'] = scores.get('bar_delta', 0) + tick.tick_volume * tick.trade_sign
             if tick.is_large_trade:
                 if tick.trade_sign == 1:
-                    scores['large_buy_volume'] += tick.tick_volume
+                    scores['large_buy_volume'] = scores.get('large_buy_volume', 0) + tick.tick_volume
                 else:
-                    scores['large_sell_volume'] += tick.tick_volume
-            if tick.is_buy_absorption:
-                scores['passive_buy_volume'] += tick.tick_volume
-            if tick.is_sell_absorption:
-                scores['passive_sell_volume'] += tick.tick_volume
+                    scores['large_sell_volume'] = scores.get('large_sell_volume', 0) + tick.tick_volume
+            if tick.is_buy_absorption: scores['passive_buy_volume'] = scores.get('passive_buy_volume',
+                                                                                 0) + tick.tick_volume
+            if tick.is_sell_absorption: scores['passive_sell_volume'] = scores.get('passive_sell_volume',
+                                                                                   0) + tick.tick_volume
 
-        # ** FIX: Recalculate features on every tick for real-time updates **
         self._recalculate_bar_features()
 
     def _finalize_bar(self) -> BarData:
-        # ** FIX: Recalculate features one last time before finalizing **
-        self._recalculate_bar_features()
+        self._recalculate_bar_features()  # Final calculation before storing
         final_bar = self.building_bar
 
-        # Update historical delta for next bar's calculation
+        # --- Update State After Bar is Complete ---
+        # 1. Update RSI state
+        prev_close = self.bar_history[-1].close if self.bar_history else final_bar.open
+        change = final_bar.close - prev_close
+        gain = change if change > 0 else 0
+        loss = -change if change < 0 else 0
+        if not self.is_rsi_initialized:
+            # Simple average for the first period
+            if len(self.bar_history) < INDICATOR_PERIOD:
+                self.avg_gain = (self.avg_gain * len(self.bar_history) + gain) / (len(self.bar_history) + 1)
+                self.avg_loss = (self.avg_loss * len(self.bar_history) + loss) / (len(self.bar_history) + 1)
+            if len(self.bar_history) == INDICATOR_PERIOD - 1:
+                self.is_rsi_initialized = True
+        else:  # Smoothed average after initialization
+            self.avg_gain = (self.avg_gain * (INDICATOR_PERIOD - 1) + gain) / INDICATOR_PERIOD
+            self.avg_loss = (self.avg_loss * (INDICATOR_PERIOD - 1) + loss) / INDICATOR_PERIOD
+
+        # 2. Update MFI history
+        if self.bar_history:
+            tp = (final_bar.high + final_bar.low + final_bar.close) / 3
+            prev_tp = (self.bar_history[-1].high + self.bar_history[-1].low + self.bar_history[-1].close) / 3
+            self.money_flow_history.append((tp * final_bar.volume, 1 if tp > prev_tp else -1))
+
+        # 3. Update CVD history
         self.delta_history_5m.append(final_bar.raw_scores.get('bar_delta', 0))
         self.delta_history_10m.append(final_bar.raw_scores.get('bar_delta', 0))
         self.delta_history_30m.append(final_bar.raw_scores.get('bar_delta', 0))
 
-        # Add the completed bar to history
         self.bar_history.append(final_bar)
-        self.building_bar = None  # Clear the building bar
+        self.building_bar = None
         return final_bar
 
     def _recalculate_bar_features(self):
-        """
-        Calculates all advanced features for the current building_bar.
-        This is called on every tick to provide real-time updates.
-        """
-        if not self.building_bar:
-            return
+        if not self.building_bar: return
+        bar, scores = self.building_bar, self.building_bar.raw_scores
 
-        bar = self.building_bar
-        scores = bar.raw_scores
-
-        # --- Cumulative Volume Delta (CVD) ---
-        # Sum of historical delta + the delta of the current, building bar
-        scores['cvd_5m'] = sum(self.delta_history_5m) + scores.get('bar_delta', 0)
-        scores['cvd_10m'] = sum(self.delta_history_10m) + scores.get('bar_delta', 0)
-        scores['cvd_30m'] = sum(self.delta_history_30m) + scores.get('bar_delta', 0)
-
-        # --- RSI, OBV, MFI ---
         prev_bar = self.bar_history[-1] if self.bar_history else None
         prev_close = prev_bar.close if prev_bar else bar.open
         prev_obv = prev_bar.raw_scores.get('obv', 0) if prev_bar else 0
-        scores['rsi'] = self._calculate_rsi(bar.close, prev_close)
-        scores['obv'] = self._calculate_obv(bar.close, prev_close, bar.volume, prev_obv)
-        scores['mfi'] = self._calculate_mfi(bar.high, bar.low, bar.close, bar.volume)
-
-        # --- Large Volume Commitment (LVC) Delta ---
         prev_lvc_delta = prev_bar.raw_scores.get('lvc_delta', 0) if prev_bar else 0
-        net_large_volume = scores.get('large_buy_volume', 0) - scores.get('large_sell_volume', 0)
-        scores['lvc_delta'] = prev_lvc_delta + net_large_volume
 
-        # --- Close Location Value (CLV) ---
+        scores['cvd_30m'] = sum(self.delta_history_30m) + scores.get('bar_delta', 0)
+        scores['rsi'] = self._calculate_rsi(bar.close, prev_close)
+        scores['mfi'] = self._calculate_mfi(bar, prev_bar)
+        scores['obv'] = self._calculate_obv(bar.close, prev_close, bar.volume, prev_obv)
+        scores['lvc_delta'] = prev_lvc_delta + scores.get('large_buy_volume', 0) - scores.get('large_sell_volume', 0)
+
         bar_range = bar.high - bar.low
-        if bar_range > 0:
-            scores['clv'] = ((bar.close - bar.low) - (bar.high - bar.close)) / bar_range
-        else:
-            scores['clv'] = 0.0
-
-        # --- Divergence Scores ---
-        scores["divergence"] = self.pattern_detector.calculate_scores(bar, self.bar_history)
+        scores['clv'] = ((bar.close - bar.low) - (bar.high - bar.close)) / bar_range if bar_range > 0 else 0.0
+        scores['divergence'] = self.pattern_detector.calculate_scores(bar, self.bar_history)
 
     def _calculate_rsi(self, current_close: float, prev_close: float) -> float:
         change = current_close - prev_close
         gain = change if change > 0 else 0
         loss = -change if change < 0 else 0
 
-        # Use smoothed moving average for RSI
-        if len(self.bar_history) < INDICATOR_PERIOD - 1:
-            # Use simple moving average for the initial period
-            self.avg_gain = ((self.avg_gain * (
-                        self.bar_count - 1)) + gain) / self.bar_count if self.bar_count > 0 else 0
-            self.avg_loss = ((self.avg_loss * (
-                        self.bar_count - 1)) + loss) / self.bar_count if self.bar_count > 0 else 0.0001
-        else:
-            self.avg_gain = ((self.avg_gain * (INDICATOR_PERIOD - 1)) + gain) / INDICATOR_PERIOD
-            self.avg_loss = ((self.avg_loss * (INDICATOR_PERIOD - 1)) + loss) / INDICATOR_PERIOD
+        # Calculate using the state of the *last completed bar*
+        current_avg_gain = (self.avg_gain * (
+                    INDICATOR_PERIOD - 1) + gain) / INDICATOR_PERIOD if self.is_rsi_initialized else (
+                                                                                                                 self.avg_gain * len(
+                                                                                                             self.bar_history) + gain) / (
+                                                                                                                 len(self.bar_history) + 1)
+        current_avg_loss = (self.avg_loss * (
+                    INDICATOR_PERIOD - 1) + loss) / INDICATOR_PERIOD if self.is_rsi_initialized else (
+                                                                                                                 self.avg_loss * len(
+                                                                                                             self.bar_history) + loss) / (
+                                                                                                                 len(self.bar_history) + 1)
 
-        if self.avg_loss == 0:
-            return 100.0
+        if current_avg_loss == 0: return 100.0
+        rs = current_avg_gain / current_avg_loss
+        return 100 - (100 / (1 + rs)) if (1 + rs) != 0 else 100.0
 
-        rs = self.avg_gain / self.avg_loss
-        return 100 - (100 / (1 + rs))
+    def _calculate_mfi(self, current_bar: BarData, prev_bar: Optional[BarData]) -> float:
+        if not prev_bar: return 50.0
+
+        tp = (current_bar.high + current_bar.low + current_bar.close) / 3
+        prev_tp = (prev_bar.high + prev_bar.low + prev_bar.close) / 3
+
+        # Create a temporary history for calculation
+        temp_mf_history = list(self.money_flow_history)
+        temp_mf_history.append((tp * current_bar.volume, 1 if tp > prev_tp else -1))
+        if len(temp_mf_history) > INDICATOR_PERIOD:
+            temp_mf_history.pop(0)
+
+        pos_flow = sum(flow for flow, sign in temp_mf_history if sign == 1)
+        neg_flow = sum(flow for flow, sign in temp_mf_history if sign == -1)
+
+        if neg_flow == 0: return 100.0
+        mf_ratio = pos_flow / neg_flow
+        return 100 - (100 / (1 + mf_ratio))
 
     def _calculate_obv(self, current_close: float, prev_close: float, volume: int, prev_obv: int) -> int:
         if current_close > prev_close: return prev_obv + volume
         if current_close < prev_close: return prev_obv - volume
         return prev_obv
-
-    def _calculate_mfi(self, high: float, low: float, close: float, volume: int) -> float:
-        if not self.bar_history:
-            return 50.0
-
-        typical_price = (high + low + close) / 3
-        # Get the typical price from the last *completed* bar in history
-        prev_typical_price = (self.bar_history[-1].high + self.bar_history[-1].low + self.bar_history[-1].close) / 3
-
-        raw_money_flow = typical_price * volume
-
-        # We need to handle the money flow history carefully for the building bar
-        current_flow = (raw_money_flow, 1 if typical_price > prev_typical_price else -1)
-
-        # Combine historical flows with the current, temporary flow
-        combined_flows = list(self.money_flow_history)
-        combined_flows.append(current_flow)
-
-        # Ensure we don't exceed the period
-        if len(combined_flows) > INDICATOR_PERIOD:
-            combined_flows = combined_flows[-INDICATOR_PERIOD:]
-
-        positive_flow = sum(flow for flow, sign in combined_flows if sign == 1)
-        negative_flow = sum(flow for flow, sign in combined_flows if sign == -1)
-
-        if negative_flow == 0:
-            return 100.0
-
-        money_flow_ratio = positive_flow / negative_flow
-        return 100 - (100 / (1 + money_flow_ratio))
 
 
 class BarAggregatorProcessor:
@@ -253,11 +211,7 @@ class BarAggregatorProcessor:
             agg = self.aggregators[agg_key]
             completed_bar = agg.add_tick(tick)
             if completed_bar:
-                # Add the finalized bar to the list to be written
                 updated_bars.append(completed_bar)
-
-            # Always add the currently building (and now real-time updated) bar
             if agg.building_bar:
                 updated_bars.append(agg.building_bar)
-
         return updated_bars

@@ -9,7 +9,7 @@ api_secret = os.getenv("KITE_API_SECRET")
 
 kite = KiteConnect(api_key=api_key)
 
-print("Login URL:", kite.login_url())
+print(kite.login_url())
 request_token = input("Please enter your request token: ").strip()
 
 try:
