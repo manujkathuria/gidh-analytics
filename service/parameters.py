@@ -22,11 +22,18 @@ REALTIME_INSTRUMENTS = {
 
 # A smaller, consistent set of instruments for backtesting
 BACKTEST_INSTRUMENTS = {
-    "DIXON":      5552641,
-    "BOSCHLTD": 558337,
+    "BOSCHLTD":   558337,
     "POWERINDIA": 4724993,
-    "FORCEMOT": 2962689,
-    "MARUTI": 2815745,
+    "SOLARINDS":  3412993,
+    "DIXON":      5552641,
+    "FORCEMOT":   2962689,
+    "BAJAJHLDNG": 78081,
+    "MARUTI":     2815745,
+    "ULTRACEMCO": 2952193,
+    "NEULANDLAB": 615937,
+    "ORACLE":     2748929,
+    "MCX":        7982337,
+    "BAJAJ-AUTO": 4267265,
 }
 
 # --- Dynamically Select the Instrument Map ---
