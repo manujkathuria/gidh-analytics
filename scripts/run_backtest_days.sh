@@ -5,7 +5,7 @@ DATA_DIR="/home/manuj/workspace/wealth-wave-ventures/backup/backtest"
 ENV_FILE="/home/manuj/workspace/wealth-wave-ventures/gidh-analytics/.env"
 TMP_EXTRACT_DIR="/home/manuj/workspace/wealth-wave-ventures/gidh-analytics/data/kite"
 APP_DIR="/home/manuj/workspace/wealth-wave-ventures/gidh-analytics"
-PYTHON_BIN="${APP_DIR}/.venv/bin/python"
+VENV_DIR="${APP_DIR}/.venv"
 APP_MAIN="main.py"
 SLEEP_BETWEEN_RUNS=5
 
@@ -24,10 +24,10 @@ for file in $files; do
     echo "Setting BACKTESTING_DATE=$date"
 
     # 4. Update .env file (replace or append)
-    if grep -q "^BACKTESTING_DATE=" "$ENV_FILE"; then
-        sed -i.bak "s/^BACKTESTING_DATE=.*/BACKTESTING_DATE=$date/" "$ENV_FILE"
+    if grep -q "^BACKTEST_DATE=" "$ENV_FILE"; then
+        sed -i.bak "s/^BACKTEST_DATE=.*/BACKTEST_DATE=$date/" "$ENV_FILE"
     else
-        echo "BACKTESTING_DATE=$date" >> "$ENV_FILE"
+        echo "BACKTEST_DATE=$date" >> "$ENV_FILE"
     fi
 
     # 5. Clear old extracted data and extract new one
@@ -38,12 +38,27 @@ for file in $files; do
     # 6. Run the Python app via venv
     echo "Running backtest for $date"
     cd "$APP_DIR" || { echo "❌ Could not cd into $APP_DIR"; exit 1; }
-    "$PYTHON_BIN" "$APP_MAIN"
+
+    # --- ADDED: Activate Virtual Environment ---
+    if [ -f "${VENV_DIR}/bin/activate" ]; then
+        source "${VENV_DIR}/bin/activate"
+    else
+        echo "Error: Virtual environment not found at ${VENV_DIR}"
+        exit 1
+    fi
+
+    # --- MODIFIED: Run the python application ---
+    python "${APP_MAIN}"
 
     if [ $? -ne 0 ]; then
         echo "❌ Python app failed for $date. Exiting."
+        # --- ADDED: Deactivate on failure ---
+        deactivate
         exit 1
     fi
+
+    # --- ADDED: Deactivate Virtual Environment ---
+    deactivate
 
     echo "✅ Finished backtest for $date"
     echo "-----------------------------"
