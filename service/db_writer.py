@@ -2,11 +2,16 @@ import asyncio
 import json
 from typing import List
 import asyncpg
+
+from service import config
 from service.logger import log
 from service.models import EnrichedTick, OrderDepth, BarData
 
 
 async def batch_insert_ticks(db_pool, ticks: List[EnrichedTick]):
+    if config.SKIP_RAW_DB_WRITES:
+        return
+
     if not ticks:
         return
 
@@ -26,7 +31,8 @@ async def batch_insert_ticks(db_pool, ticks: List[EnrichedTick]):
                 t.total_sell_quantity, t.ohlc_open, t.ohlc_high, t.ohlc_low,
                 t.ohlc_close, t.change, t.instrument_token
             ) for t in ticks])
-            log.info(f"Successfully inserted batch of {len(ticks)} ticks. Sample first tick: {ticks[0].stock_name} @ {ticks[0].timestamp}")
+            log.info(
+                f"Successfully inserted batch of {len(ticks)} ticks. Sample first tick: {ticks[0].stock_name} @ {ticks[0].timestamp}")
         except asyncpg.PostgresError as e:
             sample_keys = [(t.timestamp, t.stock_name) for t in ticks[:3]]
             log.error(f"Failed to batch insert ticks: {e}; sample keys: {sample_keys}", exc_info=True)
@@ -40,6 +46,9 @@ async def batch_insert_order_depths(db_pool, ticks_with_depth: List[EnrichedTick
     """
     Inserts a batch of OrderDepth data into the live_order_depth table.
     """
+    if config.SKIP_RAW_DB_WRITES:
+        return
+
     if not ticks_with_depth:
         return
 

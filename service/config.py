@@ -19,8 +19,10 @@ PIPELINE_MODE = os.getenv("PIPELINE_MODE", "realtime")
 
 # --- Backtesting Configuration ---
 BACKTEST_DATA_DIRECTORY = os.getenv("BACKTEST_DATA_DIRECTORY")
+SAVE_RAW_TICKS_IN_BACKTEST = os.getenv("BACKTEST_SAVE_RAW_TICKS", "false").lower() == "true"
 BACKTEST_DATE_STR = os.getenv("BACKTEST_DATE")
 BACKTEST_SLEEP_DURATION = float(os.getenv("BACKTEST_SLEEP_DURATION", 0.001))
+SKIP_RAW_DB_WRITES = PIPELINE_MODE == 'backtesting' and not SAVE_RAW_TICKS_IN_BACKTEST
 
 # --- New Data Window and Truncation Settings ---
 DATA_WINDOW_MINUTES = int(os.getenv("DATA_WINDOW_MINUTES", 60))
