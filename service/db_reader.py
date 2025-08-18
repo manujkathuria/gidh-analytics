@@ -10,7 +10,7 @@ async def fetch_large_trade_thresholds(db_pool: asyncpg.Pool) -> Dict[str, int]:
     The P99 volume is used as the threshold.
     """
     thresholds = {}
-    query = "SELECT stock_name, p995_volume FROM public.large_trade_thresholds_mv;"
+    query = "SELECT stock_name, p99_volume FROM public.large_trade_thresholds_mv;"
     try:
         async with db_pool.acquire() as connection:
             # Refresh the materialized view to ensure data is up-to-date
@@ -20,10 +20,10 @@ async def fetch_large_trade_thresholds(db_pool: asyncpg.Pool) -> Dict[str, int]:
 
             records = await connection.fetch(query)
             for record in records:
-                # Ensure p995_volume is not None and is cast to int
-                if record['p995_volume'] is not None:
-                    thresholds[record['stock_name']] = int(record['p995_volume'])
-        log.info(f"Successfully loaded {len(thresholds)} large trade thresholds (P99.5) from the materialized view.")
+                # Ensure p99_volume is not None and is cast to int
+                if record['p99_volume'] is not None:
+                    thresholds[record['stock_name']] = int(record['p99_volume'])
+        log.info(f"Successfully loaded {len(thresholds)} large trade thresholds (P99) from the materialized view.")
         return thresholds
     except asyncpg.exceptions.UndefinedTableError:
         log.error("Materialized view 'large_trade_thresholds_mv' not found. Please create it first.")
