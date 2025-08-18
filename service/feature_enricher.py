@@ -19,6 +19,19 @@ class FeatureEnricher:
         # A dictionary to hold the state for each instrument.
         self.instrument_states: Dict[int, Dict[str, Any]] = {}
 
+    def load_thresholds(self, thresholds: Dict[str, int], token_to_name_map: Dict[int, str]):
+        """ Loads pre-calculated thresholds into the state for each instrument. """
+        log.info("Loading large trade thresholds into FeatureEnricher state...")
+        for token, name in token_to_name_map.items():
+            state = self._get_instrument_state(token)  # Ensures state dictionary exists
+            if name in thresholds:
+                state["large_trade_threshold"] = thresholds[name]
+                log.info(f"  - Set threshold for {name} to {thresholds[name]}")
+            else:
+                # If a threshold isn't in the DB, set it high to avoid false positives
+                state["large_trade_threshold"] = float('inf')
+                log.warning(f"  - No large trade threshold found for {name} ({token}).")
+
     def _get_instrument_state(self, instrument_token: int) -> Dict[str, Any]:
         """Initializes and retrieves the state for a given instrument."""
         if instrument_token not in self.instrument_states:
@@ -30,6 +43,8 @@ class FeatureEnricher:
                 "last_best_ask_qty": 0,
                 "hidden_sell_order_refill_count": 0,
                 "hidden_buy_order_refill_count": 0,
+                # Add a default threshold. It will be overwritten by load_thresholds.
+                "large_trade_threshold": float('inf'),
             }
         return self.instrument_states[instrument_token]
 
@@ -69,21 +84,14 @@ class FeatureEnricher:
                 elif tick.last_price < last_tick.last_price:
                     trade_sign = -1
 
-        # --- 3. Calculate IsLargeTrade (existing logic) ---
+        # --- 3. Calculate IsLargeTrade (MODIFIED LOGIC) ---
         is_large_trade = False
-        if tick_volume > 0 and len(data_window) > 20:  # Ensure enough data for a meaningful percentile
-            # Get recent trade volumes for this specific instrument from the window
-            recent_volumes = [
-                et.tick_volume for ts, et in data_window
-                if et.instrument_token == instrument_token and et.tick_volume > 0
-            ]
-
-            if len(recent_volumes) > 20:
-                # Calculate the 90th percentile threshold using numpy
-                p90_threshold = np.percentile(recent_volumes, 90)
-
-                if tick_volume > p90_threshold > 0:
-                    is_large_trade = True
+        if tick_volume > 0:
+            # Get the pre-calculated threshold from this instrument's state
+            threshold = state.get("large_trade_threshold", float('inf'))
+            if tick_volume > threshold:
+                is_large_trade = True
+        # --- (The old dynamic calculation is now removed) ---
 
         # --- 4. Detect Buy/Sell Absorption (Iceberg Orders) ---
         is_buy_absorption = False
