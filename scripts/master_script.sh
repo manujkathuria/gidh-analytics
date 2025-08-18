@@ -123,6 +123,40 @@ truncate_tables() {
     echo "✅ All specified tables have been truncated successfully."
 }
 
+run_maintenance() {
+    echo "Starting database maintenance..."
+
+    # --- Configuration ---
+    TABLES_TO_PRUNE=(
+        "public.live_ticks"
+        "public.enriched_features"
+    )
+    TABLE_TO_TRUNCATE="public.live_order_depth"
+    RETENTION_DAYS="14"
+
+    # --- Prune old data ---
+    echo "Pruning data older than ${RETENTION_DAYS} days..."
+    for table in "${TABLES_TO_PRUNE[@]}"; do
+        echo "  → Pruning ${table}..."
+        docker exec -t "${DB_CONTAINER}" psql -U "${DB_USER}" -d "${DB_NAME}" -c "DELETE FROM ${table} WHERE timestamp < NOW() - INTERVAL '${RETENTION_DAYS} days';"
+        if [ $? -ne 0 ]; then
+            echo "❌ Error: Failed to prune ${table}."
+            return 1
+        fi
+    done
+
+    # --- Truncate order depth data ---
+    echo "Clearing all data from ${TABLE_TO_TRUNCATE}..."
+    docker exec -t "${DB_CONTAINER}" psql -U "${DB_USER}" -d "${DB_NAME}" -c "TRUNCATE TABLE ${TABLE_TO_TRUNCATE};"
+    if [ $? -ne 0 ]; then
+        echo "❌ Error: Failed to truncate ${TABLE_TO_TRUNCATE}."
+        return 1
+    fi
+
+    echo "✅ Database maintenance completed successfully."
+}
+
+
 # --- Main Script Logic ---
 case "$1" in
     start)
@@ -140,8 +174,11 @@ case "$1" in
     truncate)
         truncate_tables
         ;;
+    maintain)
+        run_maintenance
+        ;;
     *)
-        echo "Usage: $0 {start|stop|login|backup|truncate}"
+        echo "Usage: $0 {start|stop|login|backup|truncate|maintain}"
         exit 1
         ;;
 esac

@@ -13,6 +13,8 @@ from service.divergence import PatternDetector
 INDICATOR_PERIOD = 14
 BAR_INTERVALS_MINUTES = [1, 3, 5, 10, 15]
 BAR_INTERVALS = [timedelta(minutes=m) for m in BAR_INTERVALS_MINUTES]
+# Define the smoothing period for CLV
+CLV_SMOOTHING_PERIOD = 3
 
 
 class BarAggregator:
@@ -37,6 +39,9 @@ class BarAggregator:
 
         # --- State for MFI ---
         self.money_flow_history: Deque[Tuple[float, float]] = deque(maxlen=INDICATOR_PERIOD)
+
+        # --- State for Smoothed CLV ---
+        self.clv_history: Deque[float] = deque(maxlen=CLV_SMOOTHING_PERIOD)
 
         self.pattern_detector = PatternDetector()
 
@@ -125,6 +130,9 @@ class BarAggregator:
         self.delta_history_10m.append(final_bar.raw_scores.get('bar_delta', 0))
         self.delta_history_30m.append(final_bar.raw_scores.get('bar_delta', 0))
 
+        # 4. Update CLV history with the final value of the completed bar
+        self.clv_history.append(final_bar.raw_scores.get('clv', 0.0))
+
         self.bar_history.append(final_bar)
         self.building_bar = None
         return final_bar
@@ -144,8 +152,18 @@ class BarAggregator:
         scores['obv'] = self._calculate_obv(bar.close, prev_close, bar.volume, prev_obv)
         scores['lvc_delta'] = prev_lvc_delta + scores.get('large_buy_volume', 0) - scores.get('large_sell_volume', 0)
 
+        # --- CLV and Smoothed CLV Calculation ---
         bar_range = bar.high - bar.low
-        scores['clv'] = ((bar.close - bar.low) - (bar.high - bar.close)) / bar_range if bar_range > 0 else 0.0
+        current_clv = ((bar.close - bar.low) - (bar.high - bar.close)) / bar_range if bar_range > 0 else 0.0
+        scores['clv'] = current_clv
+
+        # Calculate the smoothed value using the history of completed bars plus the current building bar's value
+        clv_values_for_avg = list(self.clv_history) + [current_clv]
+        if clv_values_for_avg:
+            scores['clv_smoothed'] = sum(clv_values_for_avg) / len(clv_values_for_avg)
+        else:
+            scores['clv_smoothed'] = 0.0
+
         scores['divergence'] = self.pattern_detector.calculate_scores(bar, self.bar_history)
 
     def _calculate_rsi(self, current_close: float, prev_close: float) -> float:
@@ -155,15 +173,15 @@ class BarAggregator:
 
         # Calculate using the state of the *last completed bar*
         current_avg_gain = (self.avg_gain * (
-                    INDICATOR_PERIOD - 1) + gain) / INDICATOR_PERIOD if self.is_rsi_initialized else (
-                                                                                                                 self.avg_gain * len(
-                                                                                                             self.bar_history) + gain) / (
-                                                                                                                 len(self.bar_history) + 1)
+                INDICATOR_PERIOD - 1) + gain) / INDICATOR_PERIOD if self.is_rsi_initialized else (
+                                                                                                         self.avg_gain * len(
+                                                                                                     self.bar_history) + gain) / (
+                                                                                                         len(self.bar_history) + 1)
         current_avg_loss = (self.avg_loss * (
-                    INDICATOR_PERIOD - 1) + loss) / INDICATOR_PERIOD if self.is_rsi_initialized else (
-                                                                                                                 self.avg_loss * len(
-                                                                                                             self.bar_history) + loss) / (
-                                                                                                                 len(self.bar_history) + 1)
+                INDICATOR_PERIOD - 1) + loss) / INDICATOR_PERIOD if self.is_rsi_initialized else (
+                                                                                                         self.avg_loss * len(
+                                                                                                     self.bar_history) + loss) / (
+                                                                                                         len(self.bar_history) + 1)
 
         if current_avg_loss == 0: return 100.0
         rs = current_avg_gain / current_avg_loss
