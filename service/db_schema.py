@@ -113,10 +113,10 @@ async def setup_schema(db_pool):
 
 async def truncate_tables_if_needed(db_pool):
     if config.PIPELINE_MODE == 'backtesting' and config.TRUNCATE_TABLES_ON_BACKTEST:
-        log.warning("Truncating 'live_ticks', 'live_order_depth', and 'enriched_features' tables as per configuration.")
+        log.warning("Truncating 'live_order_depth', and 'enriched_features' tables as per configuration.")
         try:
             async with db_pool.acquire() as connection:
-                await connection.execute("TRUNCATE TABLE public.live_ticks, public.live_order_depth, public.enriched_features RESTART IDENTITY;")
+                await connection.execute("TRUNCATE TABLE public.live_order_depth, public.enriched_features RESTART IDENTITY;")
             log.info("Successfully truncated tables.")
         except Exception as e:
             log.error(f"Failed to truncate tables: {e}")

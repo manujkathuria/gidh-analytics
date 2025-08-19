@@ -28,8 +28,14 @@ class FileReader:
         self.depth_path = self.base_path / "live_order_depth"
 
     def _parse_timestamp(self, ts_str: str) -> datetime:
+        """
+        Parses a timestamp string and normalizes it by removing microseconds
+        to ensure ticks and depth data can be matched despite nanosecond differences.
+        """
         ts_str = ts_str.strip().replace(' ', 'T', 1)
-        return isoparse(ts_str)
+        dt = isoparse(ts_str)
+        # FIX: Truncate microseconds to handle nanosecond-level mismatches
+        return dt.replace(microsecond=0)
 
     def _parse_tick_row(self, row: Dict, instrument_token: int, depth_data: Dict) -> TickData:
         """Safely parses a dictionary row from a CSV into a TickData object."""

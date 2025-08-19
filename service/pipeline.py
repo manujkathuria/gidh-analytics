@@ -13,6 +13,8 @@ from service.file_reader import FileReader
 from service.websocket_client import WebSocketClient
 import service.db_writer as db_writer
 from service.feature_enricher import FeatureEnricher
+# Import the new mode-aware functions
+from service.db_reader import fetch_live_thresholds, calculate_and_fetch_backtest_thresholds
 
 
 class DataPipeline:
@@ -44,6 +46,7 @@ class DataPipeline:
             loop = asyncio.get_event_loop()
             self.websocket_client = WebSocketClient(self.raw_tick_queue, self.instrument_map, loop)
 
+        # The enricher is now initialized without thresholds
         self.feature_enricher = FeatureEnricher()
         self.bar_aggregator_processor = BarAggregatorProcessor()
 
@@ -160,6 +163,17 @@ class DataPipeline:
         """The main entry point for the data pipeline."""
         log.info("Starting pipeline run...")
         await self.initialize_db()
+
+        # *** MODIFIED: Load thresholds based on pipeline mode ***
+        large_trade_thresholds = {}
+        if config.PIPELINE_MODE == 'backtesting':
+            large_trade_thresholds = await calculate_and_fetch_backtest_thresholds(self.db_pool, config.BACKTEST_DATE_STR)
+        else: # 'realtime'
+            large_trade_thresholds = await fetch_live_thresholds(self.db_pool)
+
+        token_to_name_map = {v: k for k, v in self.instrument_map.items()}
+        self.feature_enricher.load_thresholds(large_trade_thresholds, token_to_name_map)
+        # *** END MODIFIED SECTION ***
 
         processor_task = asyncio.create_task(self.processor_and_writer_coroutine())
         attach_task_monitor(processor_task, "Processor and Writer")
