@@ -13,6 +13,12 @@
   "__requires": [
     {
       "type": "panel",
+      "id": "candlestick",
+      "name": "Candlestick",
+      "version": ""
+    },
+    {
+      "type": "panel",
       "id": "gauge",
       "name": "Gauge",
       "version": ""
@@ -62,7 +68,56 @@
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
-  "links": [],
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "dashboard",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Today 09:15 to Now",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/cevflskwq1m2oc/f09f938a-f09f93a1-gidh-analytics?kiosk=&orgId=1&from=now/d%2B9h%2B15m&to=now&timezone=browser&var-interval=10m&refresh=10sz"
+    },
+    {
+      "asDropdown": false,
+      "icon": "bolt",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Last 2 Hours",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/cevflskwq1m2oc/f09f938a-f09f93a1-gidh-analytics?kiosk=&orgId=1&from=now-2h&to=now&timezone=browser&var-interval=5m&refresh=10s"
+    },
+    {
+      "asDropdown": false,
+      "icon": "bolt",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Last 1 Hour",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/cevflskwq1m2oc/f09f938a-f09f93a1-gidh-analytics?kiosk=&orgId=1&from=now-1h&to=now&timezone=browser&var-interval=3m&refresh=10s"
+    },
+    {
+      "asDropdown": false,
+      "icon": "bolt",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Last 30 Minutes",
+      "tooltip": "",
+      "type": "link",
+      "url": "/d/cevflskwq1m2oc/f09f938a-f09f93a1-gidh-analytics?kiosk=&orgId=1&from=now-30m&to=now&timezone=browser&var-interval=1m&refresh=10s"
+    }
+  ],
   "panels": [
     {
       "datasource": {
@@ -163,12 +218,20 @@
       },
       "id": 1,
       "options": {
+        "candleStyle": "candles",
+        "colorStrategy": "open-close",
+        "colors": {
+          "down": "red",
+          "up": "green"
+        },
+        "includeAllFields": true,
         "legend": {
           "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": false
         },
+        "mode": "candles",
         "tooltip": {
           "hideZeros": false,
           "mode": "single",
@@ -185,7 +248,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  timestamp AS time,\n  close,\n  session_vwap as vwap\nFROM grafana_features_view \nWHERE\n  $__timeFilter(timestamp)\n  AND stock_name = '${stock_name}'\n  AND interval = '${interval}'\nORDER BY time ASC\n",
+          "rawSql": "SELECT\n  timestamp AS time,\n  open,\n  high,\n  low,\n  close,\n  session_vwap as vwap\nFROM grafana_features_view \nWHERE\n  $__timeFilter(timestamp)\n  AND stock_name = '${stock_name}'\n  AND interval = '${interval}'\nORDER BY time ASC\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -207,137 +270,7 @@
         }
       ],
       "title": "Price & VWAP Context",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": true,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "dashed+area"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "cvd_30m"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "blue",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 10,
-        "x": 14,
-        "y": 0
-      },
-      "id": 11,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "11.5.2",
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT\n  timestamp AS time,\n  cvd_30m\nFROM grafana_features_view \nWHERE\n  $__timeFilter(timestamp)\n  AND stock_name = '${stock_name}'\n  AND interval = '${interval}'\nORDER BY time ASC\n",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          }
-        }
-      ],
-      "title": "CVD 30m",
-      "type": "timeseries"
+      "type": "candlestick"
     },
     {
       "datasource": {
@@ -355,10 +288,11 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
+            "axisWidth": 50,
             "barAlignment": 0,
             "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 40,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -397,21 +331,37 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "institutional_flow_delta_negative"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
-        "h": 6,
+        "h": 8,
         "w": 10,
         "x": 14,
-        "y": 7
+        "y": 0
       },
-      "id": 6,
+      "id": 5,
       "options": {
         "legend": {
           "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "tooltip": {
           "hideZeros": false,
@@ -429,7 +379,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n    timestamp AS \"time\",\n    mfi,\n    rsi\nFROM grafana_features_view\nWHERE\n    stock_name = '${stock_name}' AND\n    \"interval\" = '$interval' AND\n    $__timeFilter(timestamp)\nORDER BY timestamp ASC;\n",
+          "rawSql": "SELECT\n  timestamp AS time,\n  CASE \n    WHEN institutional_flow_delta > 0 THEN institutional_flow_delta \n    ELSE 0 \n  END AS institutional_flow_delta_positive,\n  CASE \n    WHEN institutional_flow_delta < 0 THEN institutional_flow_delta \n    ELSE 0 \n  END AS institutional_flow_delta_negative\nFROM grafana_features_view\nWHERE\n  $__timeFilter(timestamp)\n  AND stock_name = '${stock_name}'\n  AND interval = '${interval}'\nORDER BY time ASC\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -450,7 +400,7 @@
           }
         }
       ],
-      "title": "MFI & RSI",
+      "title": "Institutional Volume Delta",
       "type": "timeseries"
     },
     {
@@ -475,14 +425,14 @@
       },
       "gridPos": {
         "h": 9,
-        "w": 14,
-        "x": 0,
-        "y": 9
+        "w": 10,
+        "x": 14,
+        "y": 8
       },
-      "id": 9,
+      "id": 7,
       "options": {
         "calculate": false,
-        "cellGap": 2,
+        "cellGap": 1,
         "color": {
           "exponent": 0.5,
           "fill": "dark-orange",
@@ -502,7 +452,7 @@
           "le": -2
         },
         "legend": {
-          "show": true
+          "show": false
         },
         "rowsFrame": {
           "layout": "auto"
@@ -514,8 +464,8 @@
         },
         "yAxis": {
           "axisPlacement": "left",
-          "reverse": false,
-          "unit": ""
+          "axisWidth": 44,
+          "reverse": false
         }
       },
       "pluginVersion": "11.5.2",
@@ -568,140 +518,11 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "obv"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#956821",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 10,
-        "x": 14,
-        "y": 13
-      },
-      "id": 5,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "11.5.2",
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT\n    timestamp AS \"time\",\n    obv\nFROM grafana_features_view\nWHERE\n    stock_name = '${stock_name}' AND\n    \"interval\" = '$interval' AND\n    $__timeFilter(timestamp)\nORDER BY timestamp ASC;\n",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          }
-        }
-      ],
-      "title": "OBV",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
+            "axisWidth": 50,
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "bars",
-            "fillOpacity": 30,
+            "fillOpacity": 40,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -759,12 +580,12 @@
         ]
       },
       "gridPos": {
-        "h": 6,
+        "h": 7,
         "w": 14,
         "x": 0,
-        "y": 18
+        "y": 9
       },
-      "id": 3,
+      "id": 2,
       "options": {
         "legend": {
           "calcs": [],
@@ -820,302 +641,6 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 3,
-        "x": 14,
-        "y": 19
-      },
-      "id": 7,
-      "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "/^current_price$/",
-          "values": false
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "sizing": "auto"
-      },
-      "pluginVersion": "11.5.2",
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "-- Query for the day's High and Low\nSELECT\n  'range' as metric,\n  MIN(last_price) AS min_price,\n  MAX(last_price) AS max_price,\n  NULL AS current_price\nFROM public.live_ticks\nWHERE\n  stock_name = '${stock_name}' AND $__timeFilter(timestamp)\n\nUNION ALL\n\n-- Query for the latest price\n(SELECT\n  'current' as metric,\n  NULL,\n  NULL,\n  last_price\nFROM public.live_ticks\nWHERE\n  stock_name = '${stock_name}' AND $__timeFilter(timestamp)\nORDER BY timestamp DESC\nLIMIT 1);",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          }
-        }
-      ],
-      "type": "gauge"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "max": 1,
-          "min": -1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "super-light-red",
-                "value": -0.7
-              },
-              {
-                "color": "super-light-green",
-                "value": 0
-              },
-              {
-                "color": "green",
-                "value": 0.7
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "cvd_30m"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "blue",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 3,
-        "x": 17,
-        "y": 19
-      },
-      "id": 8,
-      "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "/^volume_divergence_score$/",
-          "values": false
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "sizing": "auto"
-      },
-      "pluginVersion": "11.5.2",
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "WITH ordered_bars AS (\n  SELECT\n    timestamp AS time,\n    (COALESCE(div_price_lvc, 0) + COALESCE(div_price_cvd, 0) + COALESCE(div_price_obv, 0)) / 3.0 AS volume_divergence_score,\n    ROW_NUMBER() OVER (ORDER BY timestamp DESC) AS row_num\n  FROM grafana_features_view\n  WHERE\n    $__timeFilter(timestamp)\n    AND stock_name = '${stock_name}'\n    AND interval = '${interval}'\n)\nSELECT time, volume_divergence_score\nFROM ordered_bars\nWHERE row_num = 2\n",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          }
-        }
-      ],
-      "title": "Volume Meter",
-      "type": "gauge"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "max": 1,
-          "min": -1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "super-light-red",
-                "value": -0.7
-              },
-              {
-                "color": "super-light-green",
-                "value": 0
-              },
-              {
-                "color": "green",
-                "value": 0.7
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "cvd_30m"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "blue",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 3,
-        "x": 20,
-        "y": 19
-      },
-      "id": 10,
-      "options": {
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "/^momentum_divergence_score$/",
-          "values": false
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true,
-        "sizing": "auto"
-      },
-      "pluginVersion": "11.5.2",
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "WITH ranked_rows AS (\n  SELECT\n    timestamp AS time,\n    (COALESCE(div_price_mfi, 0) + COALESCE(div_price_rsi, 0)) / 2.0 AS momentum_divergence_score,\n    ROW_NUMBER() OVER (ORDER BY timestamp DESC) AS row_num\n  FROM grafana_features_view \n  WHERE\n    $__timeFilter(timestamp)\n    AND stock_name = '${stock_name}'\n    AND interval = '${interval}'\n)\nSELECT time, momentum_divergence_score\nFROM ranked_rows\nWHERE row_num = 2\n",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          }
-        }
-      ],
-      "title": "Momentum Meter",
-      "type": "gauge"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
             "mode": "palette-classic"
           },
           "custom": {
@@ -1124,10 +649,11 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
+            "axisWidth": 47,
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "bars",
-            "fillOpacity": 30,
+            "fillOpacity": 40,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -1188,15 +714,15 @@
         "h": 8,
         "w": 14,
         "x": 0,
-        "y": 24
+        "y": 16
       },
-      "id": 4,
+      "id": 3,
       "options": {
         "legend": {
           "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "tooltip": {
           "hideZeros": false,
@@ -1235,8 +761,346 @@
           }
         }
       ],
-      "title": "Hidden Absorption",
+      "title": "Iceberg Detection",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_GIDH_ANALYTICS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisWidth": 50,
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 40,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "clv_negative"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 10,
+        "x": 14,
+        "y": 17
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.5.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  timestamp AS time,\n  CASE \n    WHEN clv_smoothed > 0 THEN clv_smoothed \n    ELSE 0 \n  END AS clv_positive,\n  CASE \n    WHEN clv_smoothed < 0 THEN clv_smoothed \n    ELSE 0 \n  END AS clv_negative\nFROM grafana_features_view\nWHERE\n  $__timeFilter(timestamp)\n  AND stock_name = '${stock_name}'\n  AND interval = '${interval}'\nORDER BY time ASC\n",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "CLV Smooth",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_GIDH_ANALYTICS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisWidth": 50,
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 40,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "clv_negative"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 14,
+        "x": 0,
+        "y": 24
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.5.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  timestamp AS time,\n  CASE \n    WHEN clv > 0 THEN clv \n    ELSE 0 \n  END AS clv_positive,\n  CASE \n    WHEN clv < 0 THEN clv \n    ELSE 0 \n  END AS clv_negative\nFROM grafana_features_view\nWHERE\n  $__timeFilter(timestamp)\n  AND stock_name = '${stock_name}'\n  AND interval = '${interval}'\nORDER BY time ASC\n",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "CLV",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_GIDH_ANALYTICS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 24
+      },
+      "id": 8,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^current_price$/",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "pluginVersion": "11.5.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "-- Query for the day's High and Low\nSELECT\n  'range' as metric,\n  MIN(last_price) AS min_price,\n  MAX(last_price) AS max_price,\n  NULL AS current_price\nFROM public.live_ticks\nWHERE\n  stock_name = '${stock_name}' AND $__timeFilter(timestamp)\n\nUNION ALL\n\n-- Query for the latest price\n(SELECT\n  'current' as metric,\n  NULL,\n  NULL,\n  last_price\nFROM public.live_ticks\nWHERE\n  stock_name = '${stock_name}' AND $__timeFilter(timestamp)\nORDER BY timestamp DESC\nLIMIT 1);",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "type": "gauge"
     }
   ],
   "refresh": "5s",
@@ -1261,8 +1125,8 @@
       },
       {
         "current": {
-          "text": "5m",
-          "value": "5m"
+          "text": "10m",
+          "value": "10m"
         },
         "name": "interval",
         "options": [
@@ -1277,12 +1141,12 @@
             "value": "3m"
           },
           {
-            "selected": true,
+            "selected": false,
             "text": "5m",
             "value": "5m"
           },
           {
-            "selected": false,
+            "selected": true,
             "text": "10m",
             "value": "10m"
           },
@@ -1298,13 +1162,13 @@
     ]
   },
   "time": {
-    "from": "now-30m",
-    "to": "now"
+    "from": "2025-08-18T03:35:29.352Z",
+    "to": "2025-08-18T09:57:04.587Z"
   },
   "timepicker": {},
   "timezone": "browser",
   "title": "📊📡 GIDH Analytics",
-  "uid": "eeqs0lfrel6v4c",
+  "uid": "cevflskwq1m2oc",
   "version": 2,
   "weekStart": ""
 }
