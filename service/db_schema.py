@@ -9,7 +9,6 @@ async def setup_schema(db_pool):
         await connection.execute("CREATE EXTENSION IF NOT EXISTS timescaledb;")
 
         # --- Table and Hypertable creation ---
-        # (No changes to the table creation logic)
         await connection.execute("""
             CREATE TABLE IF NOT EXISTS public.live_ticks (
                 timestamp TIMESTAMPTZ NOT NULL, stock_name TEXT NOT NULL,
@@ -81,14 +80,24 @@ async def setup_schema(db_pool):
                 COALESCE((raw_scores->>'large_sell_volume')::BIGINT, 0) AS large_sell_volume,
                 COALESCE((raw_scores->>'passive_buy_volume')::BIGINT, 0) AS passive_buy_volume,
                 COALESCE((raw_scores->>'passive_sell_volume')::BIGINT, 0) AS passive_sell_volume,
+                COALESCE((raw_scores->>'cvd_5m')::BIGINT, 0) AS cvd_5m,
+                COALESCE((raw_scores->>'cvd_10m')::BIGINT, 0) AS cvd_10m,
                 COALESCE((raw_scores->>'cvd_30m')::BIGINT, 0) AS cvd_30m,
                 COALESCE((raw_scores->>'rsi')::DOUBLE PRECISION, 50.0) AS rsi,
                 COALESCE((raw_scores->>'mfi')::DOUBLE PRECISION, 50.0) AS mfi,
                 COALESCE((raw_scores->>'obv')::BIGINT, 0) AS obv,
                 COALESCE((raw_scores->>'lvc_delta')::BIGINT, 0) AS institutional_flow_delta,
                 COALESCE((raw_scores->>'clv')::DOUBLE PRECISION, 0.0) AS clv,
-                -- Add the new smoothed CLV field
                 COALESCE((raw_scores->>'clv_smoothed')::DOUBLE PRECISION, 0.0) AS clv_smoothed,
+
+                -- NEW Market Structure Flags
+                COALESCE((raw_scores->>'HH')::BOOLEAN, FALSE) AS is_hh,
+                COALESCE((raw_scores->>'HL')::BOOLEAN, FALSE) AS is_hl,
+                COALESCE((raw_scores->>'LH')::BOOLEAN, FALSE) AS is_lh,
+                COALESCE((raw_scores->>'LL')::BOOLEAN, FALSE) AS is_ll,
+                COALESCE((raw_scores->>'inside')::BOOLEAN, FALSE) AS is_inside_bar,
+                COALESCE((raw_scores->>'outside')::BOOLEAN, FALSE) AS is_outside_bar,
+                COALESCE(raw_scores->>'structure', 'init') AS bar_structure,
 
                 -- Tier 1: Price vs. Features
                 COALESCE((raw_scores->'divergence'->>'price_vs_lvc')::DOUBLE PRECISION, 0.0) AS div_price_lvc,
@@ -113,10 +122,10 @@ async def setup_schema(db_pool):
 
 async def truncate_tables_if_needed(db_pool):
     if config.PIPELINE_MODE == 'backtesting' and config.TRUNCATE_TABLES_ON_BACKTEST:
-        log.warning("Truncating 'live_order_depth', and 'enriched_features' tables as per configuration.")
+        log.warning("Truncating 'live_ticks', 'live_order_depth', and 'enriched_features' tables as per configuration.")
         try:
             async with db_pool.acquire() as connection:
-                await connection.execute("TRUNCATE TABLE public.live_order_depth, public.enriched_features RESTART IDENTITY;")
+                await connection.execute("TRUNCATE TABLE public.live_ticks, public.live_order_depth, public.enriched_features RESTART IDENTITY;")
             log.info("Successfully truncated tables.")
         except Exception as e:
             log.error(f"Failed to truncate tables: {e}")
