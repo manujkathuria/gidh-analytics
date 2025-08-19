@@ -97,7 +97,7 @@ run_backup() {
 }
 
 truncate_tables() {
-    echo "⚠️ WARNING: This will permanently delete all data from live tables."
+    echo "⚠️ WARNING: This will permanently delete all data from live_order_depth table."
     read -p "Are you sure you want to continue? (y/n) " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -106,7 +106,6 @@ truncate_tables() {
     fi
 
     TABLES_TO_TRUNCATE=(
-        "public.live_ticks"
         "public.live_order_depth"
     )
 
@@ -156,6 +155,17 @@ run_maintenance() {
     echo "✅ Database maintenance completed successfully."
 }
 
+# --- NEW FUNCTION ---
+refresh_mv() {
+    echo "Refreshing materialized view: large_trade_thresholds_mv..."
+    docker exec -t "${DB_CONTAINER}" psql -U "${DB_USER}" -d "${DB_NAME}" -c "REFRESH MATERIALIZED VIEW large_trade_thresholds_mv;"
+    if [ $? -ne 0 ]; then
+        echo "❌ Error: Failed to refresh materialized view."
+        return 1
+    fi
+    echo "✅ Materialized view refreshed successfully."
+}
+
 
 # --- Main Script Logic ---
 case "$1" in
@@ -177,8 +187,13 @@ case "$1" in
     maintain)
         run_maintenance
         ;;
+    # --- NEW KEY ---
+    refresh)
+        refresh_mv
+        ;;
     *)
-        echo "Usage: $0 {start|stop|login|backup|truncate|maintain}"
+        # --- UPDATED USAGE ---
+        echo "Usage: $0 {start|stop|login|backup|truncate|maintain|refresh}"
         exit 1
         ;;
 esac
