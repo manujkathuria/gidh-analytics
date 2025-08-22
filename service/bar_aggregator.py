@@ -1,6 +1,5 @@
 # service/bar_aggregator.py
 
-import asyncio
 import math
 from collections import deque
 from datetime import timedelta, datetime
@@ -14,8 +13,8 @@ from service.divergence import PatternDetector
 INDICATOR_PERIOD = 14
 BAR_INTERVALS_MINUTES = [1, 3, 5, 10, 15]
 BAR_INTERVALS = [timedelta(minutes=m) for m in BAR_INTERVALS_MINUTES]
-# Define the smoothing period for CLV
-CLV_SMOOTHING_PERIOD = 3
+# Define the smoothing period for all indicators
+SMOOTHING_PERIOD = 3
 
 
 class BarAggregator:
@@ -50,8 +49,13 @@ class BarAggregator:
         # --- State for MFI ---
         self.money_flow_history: Deque[Tuple[float, float]] = deque(maxlen=INDICATOR_PERIOD)
 
-        # --- State for Smoothed CLV ---
-        self.clv_history: Deque[float] = deque(maxlen=CLV_SMOOTHING_PERIOD)
+        # --- NEW: State for All Smoothed Indicators ---
+        self.clv_history: Deque[float] = deque(maxlen=SMOOTHING_PERIOD)
+        self.cvd_5m_history: Deque[int] = deque(maxlen=SMOOTHING_PERIOD)
+        self.rsi_history: Deque[float] = deque(maxlen=SMOOTHING_PERIOD)
+        self.mfi_history: Deque[float] = deque(maxlen=SMOOTHING_PERIOD)
+        self.inst_flow_delta_history: Deque[int] = deque(maxlen=SMOOTHING_PERIOD)
+
 
         self.pattern_detector = PatternDetector()
 
@@ -156,10 +160,17 @@ class BarAggregator:
         self.delta_history_10m.append(final_bar.raw_scores.get('bar_delta', 0))
         self.delta_history_30m.append(final_bar.raw_scores.get('bar_delta', 0))
 
-        # CLV History
+        # --- Append final values to all history deques for smoothing ---
         self.clv_history.append(final_bar.raw_scores.get('clv', 0.0))
+        self.cvd_5m_history.append(final_bar.raw_scores.get('cvd_5m', 0))
+        self.rsi_history.append(final_bar.raw_scores.get('rsi', 50.0))
+        self.mfi_history.append(final_bar.raw_scores.get('mfi', 50.0))
+        self.inst_flow_delta_history.append(
+            final_bar.raw_scores.get('large_buy_volume', 0) - final_bar.raw_scores.get('large_sell_volume', 0)
+        )
 
-        # --- Market Structure Flags (FIXED: Mutually exclusive inside/outside) ---
+
+        # --- Market Structure Flags (Mutually exclusive inside/outside) ---
         eps = 1e-9  # Using a small epsilon as tick size is not available here
         rs = final_bar.raw_scores
         prev = self.bar_history[-1] if self.bar_history else None
@@ -209,15 +220,29 @@ class BarAggregator:
         scores['obv'] = self._calculate_obv(bar.close, prev_close, bar.volume, prev_obv)
         scores['lvc_delta'] = prev_lvc_delta + scores.get('large_buy_volume', 0) - scores.get('large_sell_volume', 0)
 
+        # --- NEW: Calculate All Smoothed Features ---
         bar_range = bar.high - bar.low
         current_clv = ((bar.close - bar.low) - (bar.high - bar.close)) / bar_range if bar_range > 0 else 0.0
         scores['clv'] = current_clv
-
         clv_values_for_avg = list(self.clv_history) + [current_clv]
-        if clv_values_for_avg:
-            scores['clv_smoothed'] = sum(clv_values_for_avg) / len(clv_values_for_avg)
-        else:
-            scores['clv_smoothed'] = 0.0
+        scores['clv_smoothed'] = sum(clv_values_for_avg) / len(clv_values_for_avg) if clv_values_for_avg else 0.0
+
+        current_cvd_5m = scores.get('cvd_5m', 0)
+        cvd_5m_values_for_avg = list(self.cvd_5m_history) + [current_cvd_5m]
+        scores['cvd_5m_smoothed'] = sum(cvd_5m_values_for_avg) / len(cvd_5m_values_for_avg) if cvd_5m_values_for_avg else 0.0
+
+        current_rsi = scores.get('rsi', 50.0)
+        rsi_values_for_avg = list(self.rsi_history) + [current_rsi]
+        scores['rsi_smoothed'] = sum(rsi_values_for_avg) / len(rsi_values_for_avg) if rsi_values_for_avg else 50.0
+
+        current_mfi = scores.get('mfi', 50.0)
+        mfi_values_for_avg = list(self.mfi_history) + [current_mfi]
+        scores['mfi_smoothed'] = sum(mfi_values_for_avg) / len(mfi_values_for_avg) if mfi_values_for_avg else 50.0
+
+        current_inst_flow_delta = scores.get('large_buy_volume', 0) - scores.get('large_sell_volume', 0)
+        inst_flow_values_for_avg = list(self.inst_flow_delta_history) + [current_inst_flow_delta]
+        scores['inst_flow_delta_smoothed'] = sum(inst_flow_values_for_avg) / len(inst_flow_values_for_avg) if inst_flow_values_for_avg else 0.0
+
 
         scores['divergence'] = self.pattern_detector.calculate_scores(bar, self.bar_history)
 

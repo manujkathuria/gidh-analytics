@@ -88,9 +88,15 @@ async def setup_schema(db_pool):
                 COALESCE((raw_scores->>'obv')::BIGINT, 0) AS obv,
                 COALESCE((raw_scores->>'lvc_delta')::BIGINT, 0) AS institutional_flow_delta,
                 COALESCE((raw_scores->>'clv')::DOUBLE PRECISION, 0.0) AS clv,
-                COALESCE((raw_scores->>'clv_smoothed')::DOUBLE PRECISION, 0.0) AS clv_smoothed,
 
-                -- NEW Market Structure Flags
+                -- SMOOTHED INDICATORS
+                COALESCE((raw_scores->>'clv_smoothed')::DOUBLE PRECISION, 0.0) AS clv_smoothed,
+                COALESCE((raw_scores->>'cvd_5m_smoothed')::DOUBLE PRECISION, 0.0) AS cvd_5m_smoothed,
+                COALESCE((raw_scores->>'rsi_smoothed')::DOUBLE PRECISION, 50.0) AS rsi_smoothed,
+                COALESCE((raw_scores->>'mfi_smoothed')::DOUBLE PRECISION, 50.0) AS mfi_smoothed,
+                COALESCE((raw_scores->>'inst_flow_delta_smoothed')::DOUBLE PRECISION, 0.0) AS inst_flow_delta_smoothed,
+
+                -- Market Structure Flags
                 COALESCE((raw_scores->>'HH')::BOOLEAN, FALSE) AS is_hh,
                 COALESCE((raw_scores->>'HL')::BOOLEAN, FALSE) AS is_hl,
                 COALESCE((raw_scores->>'LH')::BOOLEAN, FALSE) AS is_lh,
@@ -105,6 +111,7 @@ async def setup_schema(db_pool):
                 COALESCE((raw_scores->'divergence'->>'price_vs_obv')::DOUBLE PRECISION, 0.0) AS div_price_obv,
                 COALESCE((raw_scores->'divergence'->>'price_vs_rsi')::DOUBLE PRECISION, 0.0) AS div_price_rsi,
                 COALESCE((raw_scores->'divergence'->>'price_vs_mfi')::DOUBLE PRECISION, 0.0) AS div_price_mfi,
+                COALESCE((raw_scores->'divergence'->>'price_vs_clv')::DOUBLE PRECISION, 0.0) AS div_price_clv,
 
                 -- Tier 2: LVC vs. Features
                 COALESCE((raw_scores->'divergence'->>'lvc_vs_cvd')::DOUBLE PRECISION, 0.0) AS div_lvc_cvd,

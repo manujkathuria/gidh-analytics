@@ -60,16 +60,18 @@ class PatternDetector:
         )
         if large_volume_in_window == 0: large_volume_in_window = 1
 
-        # --- 2. Calculate Normalized Indicator Changes ---
-        cvd_change = float(current_bar.raw_scores.get('cvd_30m', 0) - start_bar.raw_scores.get('cvd_30m', 0)) / float(
+        # --- 2. Calculate Normalized Indicator Changes (USING SMOOTHED VALUES) ---
+        cvd_change = float(current_bar.raw_scores.get('cvd_5m_smoothed', 0) - start_bar.raw_scores.get('cvd_5m_smoothed', 0)) / float(
             volume_in_window)
         obv_change = float(current_bar.raw_scores.get('obv', 0) - start_bar.raw_scores.get('obv', 0)) / float(
             volume_in_window)
         lvc_change = float(
             current_bar.raw_scores.get('lvc_delta', 0) - start_bar.raw_scores.get('lvc_delta', 0)) / float(
             large_volume_in_window)
-        rsi_change = float(current_bar.raw_scores.get('rsi', 50) - start_bar.raw_scores.get('rsi', 50)) / 100.0
-        mfi_change = float(current_bar.raw_scores.get('mfi', 50) - start_bar.raw_scores.get('mfi', 50)) / 100.0
+        rsi_change = float(current_bar.raw_scores.get('rsi_smoothed', 50) - start_bar.raw_scores.get('rsi_smoothed', 50)) / 100.0
+        mfi_change = float(current_bar.raw_scores.get('mfi_smoothed', 50) - start_bar.raw_scores.get('mfi_smoothed', 50)) / 100.0
+        clv_change = float(current_bar.raw_scores.get('clv_smoothed', 0) - start_bar.raw_scores.get('clv_smoothed', 0))
+
 
         # --- 3. Calculate All Divergence Scores ---
         # Tier 1: Price vs. Features
@@ -78,6 +80,8 @@ class PatternDetector:
         scores["price_vs_obv"] = _calculate_divergence_score(price_change, obv_change)
         scores["price_vs_rsi"] = _calculate_divergence_score(price_change, rsi_change)
         scores["price_vs_mfi"] = _calculate_divergence_score(price_change, mfi_change)
+        scores["price_vs_clv"] = _calculate_divergence_score(price_change, clv_change)
+
 
         # Tier 2: LVC vs. Features
         scores["lvc_vs_cvd"] = _calculate_divergence_score(lvc_change, cvd_change)
