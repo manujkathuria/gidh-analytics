@@ -62,73 +62,24 @@ CREATE INDEX live_order_depth_level_idx
 -- =========================
 -- enriched_features
 -- =========================
-CREATE TABLE public.enriched_features
+create table public.enriched_features
 (
-    timestamp    timestamp with time zone NOT NULL,
-    stock_name   text                     NOT NULL,
-    interval     text                     NOT NULL,
-    open         double precision,
-    high         double precision,
-    low          double precision,
-    close        double precision,
-    volume       bigint,
-    bar_vwap     double precision,
-    session_vwap double precision,
-    raw_scores   jsonb
+    timestamp        timestamp with time zone not null,
+    stock_name       text                     not null,
+    interval         text                     not null,
+    open             double precision,
+    high             double precision,
+    low              double precision,
+    close            double precision,
+    volume           bigint,
+    bar_vwap         double precision,
+    session_vwap     double precision,
+    raw_scores       jsonb,
+    instrument_token integer,
+    primary key (timestamp, stock_name, interval)
 );
 
-
-create view public.grafana_features_view
-            (timestamp, stock_name, interval, open, high, low, close, volume, bar_vwap, session_vwap, instrument_token,
-             bar_delta, large_buy_volume, large_sell_volume, passive_buy_volume, passive_sell_volume, cvd_30m, rsi, mfi,
-             obv, lvc_delta, clv, div_price_lvc, div_price_cvd, div_price_obv, div_price_rsi, div_price_mfi,
-             div_lvc_cvd, div_lvc_obv, div_lvc_rsi, div_lvc_mfi)
-as
-SELECT enriched_features."timestamp",
-       enriched_features.stock_name,
-       enriched_features."interval",
-       enriched_features.open,
-       enriched_features.high,
-       enriched_features.low,
-       enriched_features.close,
-       enriched_features.volume,
-       enriched_features.bar_vwap,
-       enriched_features.session_vwap,
-       enriched_features.instrument_token,
-       COALESCE((enriched_features.raw_scores ->> 'bar_delta'::text)::bigint, 0::bigint)                  AS bar_delta,
-       COALESCE((enriched_features.raw_scores ->> 'large_buy_volume'::text)::bigint,
-                0::bigint)                                                                                AS large_buy_volume,
-       COALESCE((enriched_features.raw_scores ->> 'large_sell_volume'::text)::bigint,
-                0::bigint)                                                                                AS large_sell_volume,
-       COALESCE((enriched_features.raw_scores ->> 'passive_buy_volume'::text)::bigint,
-                0::bigint)                                                                                AS passive_buy_volume,
-       COALESCE((enriched_features.raw_scores ->> 'passive_sell_volume'::text)::bigint,
-                0::bigint)                                                                                AS passive_sell_volume,
-       COALESCE((enriched_features.raw_scores ->> 'cvd_30m'::text)::bigint, 0::bigint)                    AS cvd_30m,
-       COALESCE((enriched_features.raw_scores ->> 'rsi'::text)::double precision, 50.0::double precision) AS rsi,
-       COALESCE((enriched_features.raw_scores ->> 'mfi'::text)::double precision, 50.0::double precision) AS mfi,
-       COALESCE((enriched_features.raw_scores ->> 'obv'::text)::bigint, 0::bigint)                        AS obv,
-       COALESCE((enriched_features.raw_scores ->> 'lvc_delta'::text)::bigint, 0::bigint)                  AS lvc_delta,
-       COALESCE((enriched_features.raw_scores ->> 'clv'::text)::double precision, 0.0::double precision)  AS clv,
-       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_lvc'::text)::double precision,
-                0.0::double precision)                                                                    AS div_price_lvc,
-       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_cvd'::text)::double precision,
-                0.0::double precision)                                                                    AS div_price_cvd,
-       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_obv'::text)::double precision,
-                0.0::double precision)                                                                    AS div_price_obv,
-       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_rsi'::text)::double precision,
-                0.0::double precision)                                                                    AS div_price_rsi,
-       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_mfi'::text)::double precision,
-                0.0::double precision)                                                                    AS div_price_mfi,
-       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_cvd'::text)::double precision,
-                0.0::double precision)                                                                    AS div_lvc_cvd,
-       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_obv'::text)::double precision,
-                0.0::double precision)                                                                    AS div_lvc_obv,
-       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_rsi'::text)::double precision,
-                0.0::double precision)                                                                    AS div_lvc_rsi,
-       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_mfi'::text)::double precision,
-                0.0::double precision)                                                                    AS div_lvc_mfi
-FROM enriched_features;
+SELECT create_hypertable('enriched_features', 'timestamp', if_not_exists => TRUE);
 
 
 create materialized view public.large_trade_thresholds_mv as
@@ -152,3 +103,160 @@ WHERE tv.tick_volume > 0
 GROUP BY tv.stock_name;
 
 
+create view public.grafana_features_view
+            (timestamp, stock_name, interval, open, high, low, close, volume, bar_vwap, session_vwap, instrument_token,
+             bar_delta, large_buy_volume, large_sell_volume, passive_buy_volume, passive_sell_volume, cvd_5m, cvd_10m,
+             cvd_30m, rsi, mfi, obv, institutional_flow_delta, clv, clv_smoothed, cvd_5m_smoothed, rsi_smoothed,
+             mfi_smoothed, inst_flow_delta_smoothed, is_hh, is_hl, is_lh, is_ll, is_inside_bar, is_outside_bar,
+             bar_structure, div_price_lvc, div_price_cvd, div_price_obv, div_price_rsi, div_price_mfi, div_price_clv,
+             div_lvc_cvd, div_lvc_obv, div_lvc_rsi, div_lvc_mfi)
+as
+SELECT enriched_features."timestamp",
+       enriched_features.stock_name,
+       enriched_features."interval",
+       enriched_features.open,
+       enriched_features.high,
+       enriched_features.low,
+       enriched_features.close,
+       enriched_features.volume,
+       enriched_features.bar_vwap,
+       enriched_features.session_vwap,
+       enriched_features.instrument_token,
+       COALESCE((enriched_features.raw_scores ->> 'bar_delta'::text)::bigint, 0::bigint)                             AS bar_delta,
+       COALESCE((enriched_features.raw_scores ->> 'large_buy_volume'::text)::bigint,
+                0::bigint)                                                                                           AS large_buy_volume,
+       COALESCE((enriched_features.raw_scores ->> 'large_sell_volume'::text)::bigint,
+                0::bigint)                                                                                           AS large_sell_volume,
+       COALESCE((enriched_features.raw_scores ->> 'passive_buy_volume'::text)::bigint,
+                0::bigint)                                                                                           AS passive_buy_volume,
+       COALESCE((enriched_features.raw_scores ->> 'passive_sell_volume'::text)::bigint,
+                0::bigint)                                                                                           AS passive_sell_volume,
+       COALESCE((enriched_features.raw_scores ->> 'cvd_5m'::text)::bigint,
+                0::bigint)                                                                                           AS cvd_5m,
+       COALESCE((enriched_features.raw_scores ->> 'cvd_10m'::text)::bigint,
+                0::bigint)                                                                                           AS cvd_10m,
+       COALESCE((enriched_features.raw_scores ->> 'cvd_30m'::text)::bigint,
+                0::bigint)                                                                                           AS cvd_30m,
+       COALESCE((enriched_features.raw_scores ->> 'rsi'::text)::double precision,
+                50.0::double precision)                                                                              AS rsi,
+       COALESCE((enriched_features.raw_scores ->> 'mfi'::text)::double precision,
+                50.0::double precision)                                                                              AS mfi,
+       COALESCE((enriched_features.raw_scores ->> 'obv'::text)::bigint,
+                0::bigint)                                                                                           AS obv,
+       COALESCE((enriched_features.raw_scores ->> 'lvc_delta'::text)::bigint,
+                0::bigint)                                                                                           AS institutional_flow_delta,
+       COALESCE((enriched_features.raw_scores ->> 'clv'::text)::double precision,
+                0.0::double precision)                                                                               AS clv,
+       COALESCE((enriched_features.raw_scores ->> 'clv_smoothed'::text)::double precision,
+                0.0::double precision)                                                                               AS clv_smoothed,
+       COALESCE((enriched_features.raw_scores ->> 'cvd_5m_smoothed'::text)::double precision,
+                0.0::double precision)                                                                               AS cvd_5m_smoothed,
+       COALESCE((enriched_features.raw_scores ->> 'rsi_smoothed'::text)::double precision,
+                50.0::double precision)                                                                              AS rsi_smoothed,
+       COALESCE((enriched_features.raw_scores ->> 'mfi_smoothed'::text)::double precision,
+                50.0::double precision)                                                                              AS mfi_smoothed,
+       COALESCE((enriched_features.raw_scores ->> 'inst_flow_delta_smoothed'::text)::double precision,
+                0.0::double precision)                                                                               AS inst_flow_delta_smoothed,
+       COALESCE((enriched_features.raw_scores ->> 'HH'::text)::boolean,
+                false)                                                                                               AS is_hh,
+       COALESCE((enriched_features.raw_scores ->> 'HL'::text)::boolean,
+                false)                                                                                               AS is_hl,
+       COALESCE((enriched_features.raw_scores ->> 'LH'::text)::boolean,
+                false)                                                                                               AS is_lh,
+       COALESCE((enriched_features.raw_scores ->> 'LL'::text)::boolean,
+                false)                                                                                               AS is_ll,
+       COALESCE((enriched_features.raw_scores ->> 'inside'::text)::boolean,
+                false)                                                                                               AS is_inside_bar,
+       COALESCE((enriched_features.raw_scores ->> 'outside'::text)::boolean,
+                false)                                                                                               AS is_outside_bar,
+       COALESCE(enriched_features.raw_scores ->> 'structure'::text,
+                'init'::text)                                                                                        AS bar_structure,
+       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_lvc'::text)::double precision,
+                0.0::double precision)                                                                               AS div_price_lvc,
+       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_cvd'::text)::double precision,
+                0.0::double precision)                                                                               AS div_price_cvd,
+       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_obv'::text)::double precision,
+                0.0::double precision)                                                                               AS div_price_obv,
+       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_rsi'::text)::double precision,
+                0.0::double precision)                                                                               AS div_price_rsi,
+       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_mfi'::text)::double precision,
+                0.0::double precision)                                                                               AS div_price_mfi,
+       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_clv'::text)::double precision,
+                0.0::double precision)                                                                               AS div_price_clv,
+       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_cvd'::text)::double precision,
+                0.0::double precision)                                                                               AS div_lvc_cvd,
+       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_obv'::text)::double precision,
+                0.0::double precision)                                                                               AS div_lvc_obv,
+       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_rsi'::text)::double precision,
+                0.0::double precision)                                                                               AS div_lvc_rsi,
+       COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_mfi'::text)::double precision,
+                0.0::double precision)                                                                               AS div_lvc_mfi
+FROM enriched_features;
+
+
+CREATE OR REPLACE VIEW public.market_data_aggregated_view AS
+
+WITH base_data AS (
+  -- Get all of today's 1-minute data in its native UTC format.
+  SELECT
+    timestamp,
+    stock_name,
+    large_buy_volume - large_sell_volume AS net_aggressive_volume,
+    passive_buy_volume - passive_sell_volume AS net_passive_volume,
+    "close"
+  FROM
+    public.grafana_features_view
+  WHERE
+    "interval" = '1m'
+    AND timestamp::date = current_date
+),
+aggregated_by_interval AS (
+    -- 15m aggregation
+    SELECT
+        time_bucket('15m', timestamp, (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 15 minutes')) AS "timestamp",
+        stock_name,
+        '15m' AS interval_agg,
+        SUM(net_aggressive_volume) AS "Net Inst",
+        SUM(net_passive_volume) AS "Net Iceberg",
+        last("close", timestamp) AS "Price"
+    -- KEY FIX: Repeat the function in GROUP BY instead of using an alias
+    FROM base_data GROUP BY time_bucket('15m', timestamp, (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 15 minutes')), stock_name
+
+    UNION ALL
+
+    -- 30m aggregation
+    SELECT
+        time_bucket('30m', timestamp, (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 30 minutes')) AS "timestamp",
+        stock_name,
+        '30m' AS interval_agg,
+        SUM(net_aggressive_volume) AS "Net Inst",
+        SUM(net_passive_volume) AS "Net Iceberg",
+        last("close", timestamp) AS "Price"
+    -- KEY FIX: Repeat the function in GROUP BY instead of using an alias
+    FROM base_data GROUP BY time_bucket('30m', timestamp, (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 30 minutes')), stock_name
+
+    UNION ALL
+
+    -- 1h aggregation
+    SELECT
+        time_bucket('1h', timestamp, (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 30 minutes')) AS "timestamp",
+        stock_name,
+        '1h' AS interval_agg,
+        SUM(net_aggressive_volume) AS "Net Inst",
+        SUM(net_passive_volume) AS "Net Iceberg",
+        last("close", timestamp) AS "Price"
+    -- KEY FIX: Repeat the function in GROUP BY instead of using an alias
+    FROM base_data GROUP BY time_bucket('1h', timestamp, (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 30 minutes')), stock_name
+)
+-- Now, calculate the cumulative sum on the correctly aggregated data
+SELECT
+  "timestamp",
+  "stock_name",
+  "interval_agg",
+  "Price",
+  "Net Inst",
+  "Net Iceberg",
+  SUM("Net Inst") OVER (PARTITION BY stock_name, interval_agg ORDER BY "timestamp") AS "Cumulative Inst",
+  SUM("Net Iceberg") OVER (PARTITION BY stock_name, interval_agg ORDER BY "timestamp") AS "Cumulative Iceberg"
+FROM
+  aggregated_by_interval;
