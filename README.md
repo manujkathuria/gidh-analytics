@@ -1,117 +1,132 @@
-# Gidh Analytics: Real-Time Market Intelligence Platform
+# Gidh Analytics: Business Analysis Document
 
-## 1\. Business Overview
+## 1. Executive Summary
 
-In today's fast-paced financial markets, gaining a competitive edge requires seeing beyond simple price movements. **Gidh Analytics** is an advanced, real-time data analysis platform designed to uncover the hidden intentions of institutional traders. By processing market data at a granular level, our system identifies subtle patterns of buying and selling pressure that are invisible to the average observer.
+Gidh Analytics is a real-time market data analysis platform engineered to provide a significant competitive advantage to financial traders and portfolio managers. The system moves beyond conventional, lagging indicators by ingesting granular, tick-level market data to uncover the trading patterns of large institutional players.
 
-This platform empowers traders and portfolio managers to make more informed decisions by providing a clear, evidence-based view of market dynamics. We move beyond lagging indicators to deliver live, actionable intelligence on where the "smart money" is moving, revealing critical moments of market support and resistance as they happen.
+The core business value lies in delivering **live, actionable intelligence** on market dynamics. By identifying hidden buy and sell absorption points, tracking cumulative volume delta, and flagging statistically significant trades, the platform offers an evidence-based view of where "smart money" is moving. This empowers users to make more informed, timely decisions by revealing critical moments of market support and resistance as they unfold.
 
------
+The platform is architected as a data pipeline that can operate in two modes: **real-time** for live market analysis and **backtesting** for historical data processing and strategy validation. The processed insights are made available through a purpose-built database view, designed for visualization in a real-time dashboard like Grafana.
 
-## 2\. Key Features & Business Value
+---
 
-Our platform enriches raw market data with a suite of proprietary indicators designed to reveal institutional trading activity:
+## 2. Business Problem & Objectives
 
-  * **📈 Large Trade Detection (P90 Volume):** We instantly flag trades that are in the top 10% of recent activity for a specific stock. This allows you to see significant market-moving orders in real-time, separating meaningful trades from market noise.
-  * **🧊 Absorption & Iceberg Order Detection:** Our system detects hidden buy and sell orders ("iceberg orders") by analyzing order book refills. Identifying these areas of **buy and sell absorption** reveals strong levels of support and resistance where large institutions are actively accumulating or distributing shares, often signaling a potential price turn.
-  * **📊 Cumulative Volume Delta (CVD):** We provide a running tally of buying vs. selling pressure over multiple timeframes (5, 10, and 30 minutes). A rising CVD indicates aggressive buying, while a falling CVD shows aggressive selling, offering a clear, immediate view of market momentum.
-  * **🚀 Advanced Momentum Indicators (RSI, MFI, OBV):** The platform calculates standard momentum indicators (RSI, MFI) and volume-based indicators (OBV) on clean, aggregated data bars, providing a reliable, traditional context to our more advanced features.
+### 2.1. Business Problem
 
------
+In the highly competitive financial markets, retail and smaller institutional traders often struggle to understand the actions of larger, market-moving players. Traditional technical analysis relies on lagging indicators derived from price and volume, which often fail to capture the subtle, real-time dynamics of order flow. This information asymmetry puts them at a disadvantage, as they cannot easily detect:
 
-## 3\. Setup and Installation
+* **Hidden Intentions:** Large institutions often mask their buy or sell programs using "iceberg orders" to avoid causing significant price shifts.
+* **True Momentum:** It is difficult to distinguish between market "noise" and genuine, conviction-driven buying or selling pressure.
+* **Incipient Price Moves:** Key support and resistance levels are often established by institutional activity before they become apparent on a price chart.
 
-Follow these steps to set up and run the Gidh Analytics platform on a new system.
+### 2.2. Business Objectives
 
-### Step 1: Create and Activate a Virtual Environment
+* **To Level the Playing Field:** Provide traders with a tool that exposes the hidden activities of institutional investors.
+* **To Enhance Decision Making:** Deliver clear, actionable insights that help traders identify high-probability entry and exit points.
+* **To Provide a Forward-Looking Edge:** Shift from reactive, lagging indicators to proactive, real-time analysis of order flow.
+* **To Enable Strategy Validation:** Offer a robust backtesting engine to process historical data and validate trading strategies based on the platform's proprietary indicators.
 
-It is highly recommended to use a virtual environment to manage project dependencies.
+---
 
-```bash
-# Navigate to your project directory
-cd /path/to/gidh-analytics
+## 3. Scope
 
-# Create a virtual environment named '.venv'
-python3 -m venv .venv
+### 3.1. In-Scope Features
 
-# Activate the virtual environment
-# On macOS and Linux:
-source .venv/bin/activate
-# On Windows:
-# .\.venv\Scripts\activate
-```
+* Real-time and historical data processing pipeline for tick and order depth data.
+* Calculation of proprietary and standard technical indicators.
+* Data storage in a TimescaleDB database for efficient time-series analysis.
+* A dedicated database view (`grafana_features_view`) to serve data to visualization platforms.
+* Configuration for both `realtime` and `backtesting` operational modes.
 
-Your terminal prompt should now show `(.venv)` at the beginning, indicating that the virtual environment is active.
+### 3.2. Out-of-Scope Features
 
-### Step 2: Install Required Packages
+* **User Interface:** The project delivers the data and a JSON model for a Grafana dashboard but does not include a web application or a standalone UI.
+* **Trade Execution:** The platform is purely for analysis and does not connect to any brokerage for executing trades.
+* **Data Vending:** The system processes data from a user-provided source (Kite Connect API or local files); it does not source or sell market data.
 
-Use the `pip` package manager to install all the dependencies listed in `requirements.txt`.
+---
 
-```bash
-pip install -r requirements.txt
-```
+## 4. Functional Requirements (User & System Perspective)
 
-### Step 3: Configure Your Environment
+This section details the core features of the Gidh Analytics platform.
 
-1.  **Create a `.env` file:** In the project's root directory, make a copy of `.env.example` and rename it to `.env`.
+### 4.1. Large Trade Detection
 
-2.  **Edit the `.env` file:**
+* **Description:** The system identifies trades that are significantly larger than the recent average for a given stock, flagging potential market-moving orders.
+* **Business Value:** Separates meaningful institutional activity from background noise, allowing traders to focus on impactful trades.
+* **Implementation:**
+    * In **live mode**, it uses a materialized view that calculates the 99th percentile of trade volumes over the last 7 days.
+    * In **backtesting mode**, it dynamically calculates the 99th percentile of trade volume for the 7 days *prior* to the backtest date to avoid lookahead bias.
+    * If a pre-calculated threshold is not available, it uses a dynamic fallback based on a rolling window of the last 1000 trades.
 
-      * Set the `PIPELINE_MODE` (`backtesting` or `realtime`).
-      * Provide the correct connection details for your `DB_*` variables.
-      * If backtesting, configure the `BACKTEST_*` variables.
+### 4.2. Iceberg Order & Absorption Detection
 
-### Step 4: Run the Application
+* **Description:** The system analyzes the order book to detect "iceberg orders"—large hidden orders that are partially revealed. It does this by monitoring for rapid refills of the best bid or ask quantity after a trade.
+* **Business Value:** Pinpoints exact price levels where large institutions are actively accumulating (buy absorption) or distributing (sell absorption) shares. These levels act as strong indicators of support and resistance.
+* **Implementation:**
+    * The `FeatureEnricher` module maintains the state of the top of the order book.
+    * It tracks a `refill_count` for the best bid and ask. If the quantity at a price level is replenished multiple times (specifically, more than twice) immediately after being traded against, it flags this as absorption (`is_buy_absorption` or `is_sell_absorption`).
 
-With your environment set up and dependencies installed, you can now run the main application:
+### 4.3. Cumulative Volume Delta (CVD)
 
-```bash
-python main.py
-```
+* **Description:** CVD is a running total of the volume traded on the bid versus the volume traded on the ask. It provides a real-time measure of buying and selling pressure.
+* **Business Value:** Offers an immediate, clear view of market momentum. A rising CVD indicates aggressive buying, while a falling CVD signals aggressive selling.
+* **Implementation:**
+    * The system first determines the "trade sign" (+1 for a buy, -1 for a sell) for each incoming trade.
+    * The `BarAggregator` calculates the net volume delta for each bar.
+    * It then maintains a running sum of this delta over different lookback periods (5, 10, and 30 minutes).
 
------
+### 4.4. Price Divergence Detection
 
-## 4\. How to Backtest
+* **Description:** The system identifies divergences between price movement and key technical indicators (like RSI, MFI, OBV, and CVD). For example, if the price is making a new high but the CVD is not, it signals that the upward move lacks conviction.
+* **Business Value:** Acts as a powerful leading indicator for potential trend reversals or continuations, allowing traders to anticipate price moves.
+* **Implementation:**
+    * The `PatternDetector` class in `divergence.py` calculates a normalized divergence score.
+    * It compares the percentage change in price over a lookback window (5 to 30 minutes) with the normalized change in various indicators.
+    * Scores are generated for "Price vs. Feature" (e.g., `div_price_cvd`) and "LVC vs. Feature" (e.g., `div_lvc_obv`) divergences.
 
-The platform includes a powerful backtesting engine that allows you to process historical data and generate features as if it were happening in real-time.
+### 4.5. Data Pipeline & Processing
 
-### Step 1: Configure Your Environment for Backtesting
+* **Description:** The core of the system is an asynchronous data pipeline that ingests, enriches, aggregates, and stores market data.
+* **Business Value:** Ensures high-throughput, low-latency processing, which is critical for real-time market analysis.
+* **Implementation:**
+    * **Data Ingestion:** In `realtime` mode, the `WebSocketClient` connects to the Kite API. In `backtesting` mode, the `FileReader` reads from local CSV files.
+    * **Enrichment:** Raw ticks are passed to the `FeatureEnricher` to add trade sign, large trade flags, and absorption flags.
+    * **Aggregation:** Enriched ticks are processed by the `BarAggregatorProcessor`, which builds time-based bars (1m, 3m, 5m, etc.) and calculates all features (CVD, RSI, OBV, divergences, etc.).
+    * **Storage:** The `db_writer` module performs batch inserts and upserts of the processed data into the `live_ticks`, `live_order_depth`, and `enriched_features` tables in the database.
 
-In your `.env` file, ensure the following are set correctly:
+---
 
-  * `PIPELINE_MODE=backtesting`
-  * `TRUNCATE_TABLES_ON_BACKTEST=true` (Recommended to ensure each run starts with a clean database)
-  * `BACKTEST_DATA_DIRECTORY=/path/to/your/data`
-  * `BACKTEST_DATE=YYYY-MM-DD` (The specific date you want to process)
+## 5. Data Dictionary
 
-### Step 2: Structure Your Data Directory
+| Term | Field Name | Description | Source Table/View |
+| --- | --- | --- | --- |
+| **Large Trade** | `is_large_trade` | A boolean flag indicating if a trade's volume exceeds the 99th percentile of recent trades. | `enriched_features` |
+| **Buy Absorption** | `is_buy_absorption` | A boolean flag indicating that a hidden buy order is absorbing sell-side volume at a specific price. | `enriched_features` |
+| **Sell Absorption** | `is_sell_absorption` | A boolean flag indicating that a hidden sell order is absorbing buy-side volume at a specific price. | `enriched_features` |
+| **Cumulative Volume Delta** | `cvd_5m`, `cvd_30m` | The net total of buying vs. selling volume over the last 5 or 30 minutes. | `grafana_features_view` |
+| **Institutional Flow Delta** | `institutional_flow_delta` | A cumulative sum of large buy volumes minus large sell volumes, representing net institutional pressure. | `grafana_features_view` |
+| **Price vs. CVD Divergence**| `div_price_cvd` | A score from -1 to 1 indicating the degree of divergence between price movement and CVD. | `grafana_features_view` |
 
-The backtesting engine expects your historical data to be organized in a specific way. Inside your `BACKTEST_DATA_DIRECTORY`, create a folder for each day of data (e.g., a folder named `2024-01-25`).
+---
 
-Inside each daily folder, you must have two sub-folders:
+## 6. Visualization & User Interface
 
-  * `live_ticks`
-  * `live_order_depth`
+The primary interface for consuming the platform's insights is a **Grafana dashboard**. A pre-configured dashboard JSON file (`gidh_analytics_dashboard.json`) is provided, which includes visualizations for:
 
-The data files must be placed inside these folders with the following naming convention:
+* **Price and VWAP:** A candlestick chart showing price action alongside the session's Volume Weighted Average Price.
+* **Institutional Volume:** A bar chart displaying the volume of large buy and sell trades.
+* **Iceberg Detection:** A time-series chart showing the volume associated with buy and sell absorption events.
+* **Aggregated Order Flow:** A table view that summarizes net institutional and iceberg activity over longer intervals (e.g., 15m, 30m, 1h).
+* **Price Divergence:** A heatmap that visualizes the divergence scores between price and various indicators, making it easy to spot potential reversals.
 
-  * `.../2024-01-25/live_ticks/live_ticks_DIXON.csv`
-  * `.../2024-01-25/live_order_depth/live_order_depth_DIXON.csv`
 
-The system will automatically discover and process the data for the instruments defined in `service/parameters.py`.
+---
 
-### Step 3: Run the Backtest
+## 7. Stakeholders
 
-Once your `.env` file is configured and your data is structured correctly, simply run the main application from your terminal:
-
-```bash
-python main.py
-```
-
-The application will read the configuration, connect to the database, find your historical data, and begin processing. You can monitor its progress through the console logs and see the results populate the `enriched_features` table and the `grafana_features_view` in your database.
-
------
-
-## 5\. Real-Time Dashboard
-
-The primary way to consume the intelligence generated by this platform is through a real-time dashboard (e.g., in Grafana). The database view `public.grafana_features_view` is specifically designed for this purpose, providing clean, queryable columns for all calculated features.
+* **Retail Traders:** Individual traders who will use the platform to gain an edge in their daily trading.
+* **Portfolio Managers:** Professionals managing larger funds who can use the insights to time their entries and exits more effectively.
+* **Quantitative Analysts ("Quants"):** Analysts who can use the backtesting engine and the rich feature set to develop and validate new trading models.
+* **Technical Team:** The developers and data engineers responsible for maintaining and extending the platform.
