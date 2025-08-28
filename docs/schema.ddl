@@ -24,7 +24,6 @@ CREATE TABLE public.live_ticks
 
 SELECT create_hypertable('live_ticks', 'timestamp', if_not_exists => TRUE);
 
-
 CREATE INDEX live_ticks_stock_name_timestamp_idx
     ON live_ticks (stock_name, timestamp);
 
@@ -46,8 +45,6 @@ CREATE TABLE public.live_order_depth
 );
 
 SELECT create_hypertable('live_order_depth', 'timestamp', if_not_exists => TRUE);
-
-
 
 CREATE INDEX live_order_depth_stock_name_timestamp_idx
     ON live_order_depth (stock_name, timestamp);
@@ -82,27 +79,51 @@ create table public.enriched_features
 SELECT create_hypertable('enriched_features', 'timestamp', if_not_exists => TRUE);
 
 
+-- =========================
+-- large_trade_thresholds_mv
+-- =========================
 create materialized view public.large_trade_thresholds_mv as
-WITH trade_volumes AS (SELECT lt.stock_name,
-                              lt.volume_traded - lag(lt.volume_traded, 1, 0::bigint)
-                                                 OVER (PARTITION BY lt.stock_name, (lt."timestamp"::date) ORDER BY lt."timestamp") AS tick_volume
-                       FROM live_ticks lt
-                       WHERE lt."timestamp" >= (date_trunc('day'::text, now()) - '7 days'::interval))
-SELECT tv.stock_name,
-       percentile_cont(0.95::double precision) WITHIN GROUP (ORDER BY (tv.tick_volume::double precision))  AS p95_volume,
-       percentile_cont(0.99::double precision)
-       WITHIN GROUP (ORDER BY (tv.tick_volume::double precision))                                          AS p99_volume,
-       percentile_cont(0.995::double precision)
-       WITHIN GROUP (ORDER BY (tv.tick_volume::double precision))                                          AS p995_volume,
-       percentile_cont(0.999::double precision)
-       WITHIN GROUP (ORDER BY (tv.tick_volume::double precision))                                          AS p999_volume,
-       max(tv.tick_volume)                                                                                 AS max_volume,
-       count(*)                                                                                            AS total_trades
-FROM trade_volumes tv
-WHERE tv.tick_volume > 0
-GROUP BY tv.stock_name;
+WITH trade_volumes AS (
+    SELECT lt.stock_name,
+           lt.volume_traded
+             - lag(lt.volume_traded, 1, 0::bigint)
+               OVER (PARTITION BY lt.stock_name, (lt."timestamp"::date)
+                     ORDER BY lt."timestamp") AS tick_volume,
+           lt."timestamp"::date as trade_day
+    FROM live_ticks lt
+    WHERE lt."timestamp" >= (date_trunc('day', now()) - interval '7 days')
+),
+daily_pxx AS (
+    SELECT stock_name,
+           trade_day,
+           percentile_cont(0.95)  WITHIN GROUP (ORDER BY tick_volume) AS day_p95,
+           percentile_cont(0.99)  WITHIN GROUP (ORDER BY tick_volume) AS day_p99,
+           percentile_cont(0.995) WITHIN GROUP (ORDER BY tick_volume) AS day_p995,
+           percentile_cont(0.999) WITHIN GROUP (ORDER BY tick_volume) AS day_p999,
+           max(tick_volume) AS day_max,
+           count(*)        AS day_trades
+    FROM trade_volumes
+    WHERE tick_volume > 0
+    GROUP BY stock_name, trade_day
+)
+SELECT stock_name,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY day_p95)  AS p95_volume,   -- median of daily p95
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY day_p99)  AS p99_volume,   -- median of daily p99
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY day_p995) AS p995_volume,  -- median of daily p995
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY day_p999) AS p999_volume,  -- median of daily p999
+       max(day_max)      AS max_volume,         -- keep track of absolute max
+       sum(day_trades)   AS total_trades        -- sum of trades across 7 days
+FROM daily_pxx
+GROUP BY stock_name;
+create unique index large_trade_thresholds_mv_pk
+    on public.large_trade_thresholds_mv (stock_name);
 
 
+
+-- =========================
+-- grafana_features_view
+-- =========================
+drop view if exists public.grafana_features_view cascade;
 create view public.grafana_features_view
             (timestamp, stock_name, interval, open, high, low, close, volume, bar_vwap, session_vwap, instrument_token,
              bar_delta, large_buy_volume, large_sell_volume, passive_buy_volume, passive_sell_volume, cvd_5m, cvd_10m,
@@ -194,10 +215,14 @@ SELECT enriched_features."timestamp",
 FROM enriched_features;
 
 
+-- =========================
+-- market_data_aggregated_view
+-- =========================
+drop view if exists public.market_data_aggregated_view cascade;
 CREATE OR REPLACE VIEW public.market_data_aggregated_view AS
 
 WITH base_data AS (
-  -- Get all of today's 1-minute data in its native UTC format.
+  -- Get all 1-minute data
   SELECT
     timestamp,
     stock_name,
@@ -208,7 +233,6 @@ WITH base_data AS (
     public.grafana_features_view
   WHERE
     "interval" = '1m'
-    AND timestamp::date = current_date
 ),
 aggregated_by_interval AS (
     -- 15m aggregation
@@ -219,8 +243,7 @@ aggregated_by_interval AS (
         SUM(net_aggressive_volume) AS "Net Inst",
         SUM(net_passive_volume) AS "Net Iceberg",
         last("close", timestamp) AS "Price"
-    -- KEY FIX: Repeat the function in GROUP BY instead of using an alias
-    FROM base_data GROUP BY time_bucket('15m', timestamp, (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 15 minutes')), stock_name
+    FROM base_data GROUP BY 1, 2
 
     UNION ALL
 
@@ -232,8 +255,7 @@ aggregated_by_interval AS (
         SUM(net_aggressive_volume) AS "Net Inst",
         SUM(net_passive_volume) AS "Net Iceberg",
         last("close", timestamp) AS "Price"
-    -- KEY FIX: Repeat the function in GROUP BY instead of using an alias
-    FROM base_data GROUP BY time_bucket('30m', timestamp, (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 30 minutes')), stock_name
+    FROM base_data GROUP BY 1, 2
 
     UNION ALL
 
@@ -245,10 +267,9 @@ aggregated_by_interval AS (
         SUM(net_aggressive_volume) AS "Net Inst",
         SUM(net_passive_volume) AS "Net Iceberg",
         last("close", timestamp) AS "Price"
-    -- KEY FIX: Repeat the function in GROUP BY instead of using an alias
-    FROM base_data GROUP BY time_bucket('1h', timestamp, (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 30 minutes')), stock_name
+    FROM base_data GROUP BY 1, 2
 )
--- Now, calculate the cumulative sum on the correctly aggregated data
+-- Calculate the final rolling sums with shorter aliases
 SELECT
   "timestamp",
   "stock_name",
@@ -256,7 +277,9 @@ SELECT
   "Price",
   "Net Inst",
   "Net Iceberg",
-  SUM("Net Inst") OVER (PARTITION BY stock_name, interval_agg ORDER BY "timestamp") AS "Cumulative Inst",
-  SUM("Net Iceberg") OVER (PARTITION BY stock_name, interval_agg ORDER BY "timestamp") AS "Cumulative Iceberg"
+  -- Renamed for brevity
+  SUM("Net Inst") OVER (PARTITION BY stock_name, interval_agg ORDER BY "timestamp" RANGE BETWEEN INTERVAL '1 hour' PRECEDING AND CURRENT ROW) AS "Inst_Flow_60m",
+  -- Renamed for brevity
+  SUM("Net Iceberg") OVER (PARTITION BY stock_name, interval_agg ORDER BY "timestamp" RANGE BETWEEN INTERVAL '1 hour' PRECEDING AND CURRENT ROW) AS "Iceberg_Flow_60m"
 FROM
   aggregated_by_interval;
