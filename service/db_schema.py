@@ -1,3 +1,4 @@
+from datetime import datetime
 from service import config
 from service.logger import log
 
@@ -143,45 +144,65 @@ async def setup_schema(db_pool):
         await connection.execute("""
             CREATE OR REPLACE VIEW public.market_data_aggregated_view AS
             WITH base_data AS (
-              SELECT
-                timestamp,
-                stock_name,
-                large_buy_volume - large_sell_volume AS net_aggressive_volume,
-                passive_buy_volume - passive_sell_volume AS net_passive_volume,
-                "close"
-              FROM
-                public.grafana_features_view
-              WHERE
-                "interval" = '1m'
-            ),
-            aggregated_by_interval AS (
-                SELECT
-                    time_bucket('15m', timestamp, (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 15 minutes')) AS "timestamp",
-                    stock_name, '15m' AS interval_agg,
-                    SUM(net_aggressive_volume) AS "Net Inst", SUM(net_passive_volume) AS "Net Iceberg",
-                    last("close", timestamp) AS "Price"
-                FROM base_data GROUP BY 1, 2
-                UNION ALL
-                SELECT
-                    time_bucket('30m', timestamp, (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 30 minutes')) AS "timestamp",
-                    stock_name, '30m' AS interval_agg,
-                    SUM(net_aggressive_volume) AS "Net Inst", SUM(net_passive_volume) AS "Net Iceberg",
-                    last("close", timestamp) AS "Price"
-                FROM base_data GROUP BY 1, 2
-                UNION ALL
-                SELECT
-                    time_bucket('1h', timestamp, (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 30 minutes')) AS "timestamp",
-                    stock_name, '1h' AS interval_agg,
-                    SUM(net_aggressive_volume) AS "Net Inst", SUM(net_passive_volume) AS "Net Iceberg",
-                    last("close", timestamp) AS "Price"
-                FROM base_data GROUP BY 1, 2
-            )
-            SELECT
-              "timestamp", "stock_name", "interval_agg", "Price", "Net Inst", "Net Iceberg",
-              SUM("Net Inst") OVER (PARTITION BY stock_name, interval_agg ORDER BY "timestamp" RANGE BETWEEN INTERVAL '1 hour' PRECEDING AND CURRENT ROW) AS "Inst_Flow_60m",
-              SUM("Net Iceberg") OVER (PARTITION BY stock_name, interval_agg ORDER BY "timestamp" RANGE BETWEEN INTERVAL '1 hour' PRECEDING AND CURRENT ROW) AS "Iceberg_Flow_60m"
-            FROM
-              aggregated_by_interval;
+                -- Get all 1-minute data
+                SELECT timestamp,
+                       stock_name,
+                       large_buy_volume - large_sell_volume     AS net_aggressive_volume,
+                       passive_buy_volume - passive_sell_volume AS net_passive_volume,
+                       "close"
+                FROM public.grafana_features_view
+                WHERE "interval" = '1m'),
+                 aggregated_by_interval AS (
+                     -- 15m aggregation
+                     SELECT time_bucket('15m', timestamp,
+                                        (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 15 minutes')) AS "timestamp",
+                            stock_name,
+                            '15m'                                                                             AS interval_agg,
+                            SUM(net_aggressive_volume)                                                        AS "Net Inst",
+                            SUM(net_passive_volume)                                                           AS "Net Iceberg",
+                            last("close", timestamp)                                                          AS "Price"
+                     FROM base_data
+                     GROUP BY 1, 2
+            
+                     UNION ALL
+            
+                     -- 30m aggregation
+                     SELECT time_bucket('30m', timestamp,
+                                        (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 30 minutes')) AS "timestamp",
+                            stock_name,
+                            '30m'                                                                             AS interval_agg,
+                            SUM(net_aggressive_volume)                                                        AS "Net Inst",
+                            SUM(net_passive_volume)                                                           AS "Net Iceberg",
+                            last("close", timestamp)                                                          AS "Price"
+                     FROM base_data
+                     GROUP BY 1, 2
+            
+                     UNION ALL
+            
+                     -- 1h aggregation
+                     SELECT time_bucket('1h', timestamp,
+                                        (timestamp::date AT TIME ZONE 'IST' + interval '9 hours 30 minutes')) AS "timestamp",
+                            stock_name,
+                            '1h'                                                                              AS interval_agg,
+                            SUM(net_aggressive_volume)                                                        AS "Net Inst",
+                            SUM(net_passive_volume)                                                           AS "Net Iceberg",
+                            last("close", timestamp)                                                          AS "Price"
+                     FROM base_data
+                     GROUP BY 1, 2)
+            -- Calculate the final rolling sums with shorter aliases
+            SELECT "timestamp",
+                   "stock_name",
+                   "interval_agg",
+                   "Price",
+                   "Net Inst",
+                   "Net Iceberg",
+                   -- Renamed for brevity
+                   SUM("Net Inst")
+                   OVER (PARTITION BY stock_name, interval_agg ORDER BY "timestamp" RANGE BETWEEN INTERVAL '1 hour' PRECEDING AND CURRENT ROW) AS "Inst_Flow_60m",
+                   -- Renamed for brevity
+                   SUM("Net Iceberg")
+                   OVER (PARTITION BY stock_name, interval_agg ORDER BY "timestamp" RANGE BETWEEN INTERVAL '1 hour' PRECEDING AND CURRENT ROW) AS "Iceberg_Flow_60m"
+            FROM aggregated_by_interval;
         """)
         log.info("Aggregated data view 'market_data_aggregated_view' is ready.")
 
@@ -190,14 +211,26 @@ async def setup_schema(db_pool):
 
 async def truncate_tables_if_needed(db_pool):
     if config.PIPELINE_MODE == 'backtesting' and config.TRUNCATE_TABLES_ON_BACKTEST:
-        log.warning("Truncating 'live_order_depth', and 'enriched_features' tables as per configuration.")
+        log.warning("Cleaning up tables for backtest run...")
         try:
+            # Convert the date string from config to a date object
+            backtest_date = datetime.strptime(config.BACKTEST_DATE_STR, '%Y-%m-%d').date()
+
             async with db_pool.acquire() as connection:
+                # Delete any existing tick data for the specific backtest date
+                log.info(f"Deleting existing ticks from live_ticks for date: {backtest_date}")
+                await connection.execute(
+                    'DELETE FROM public.live_ticks WHERE "timestamp"::date = $1;',
+                    backtest_date  # Pass the date object here
+                )
+
+                # Truncate the other tables to ensure they are empty
+                log.info("Truncating 'live_order_depth' and 'enriched_features' tables.")
                 await connection.execute(
                     "TRUNCATE TABLE public.live_order_depth, public.enriched_features RESTART IDENTITY;")
-            log.info("Successfully truncated tables.")
+            log.info("Successfully cleaned up tables for the backtest.")
         except Exception as e:
-            log.error(f"Failed to truncate tables: {e}")
+            log.error(f"Failed to clean up tables: {e}", exc_info=True)
             raise
     else:
-        log.info("Skipping table truncation based on current mode and configuration.")
+        log.info("Skipping table cleanup based on current mode and configuration.")

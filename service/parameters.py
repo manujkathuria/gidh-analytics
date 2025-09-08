@@ -1,28 +1,31 @@
 # In service/parameters.py
 
-from service import config # Import the config module
+from service import config  # Import the config module
 
 # --- Define Instrument Sets ---
 
-# Instruments for live, real-time trading
 REALTIME_INSTRUMENTS = {
-    "BOSCHLTD":   558337,
-    "POWERINDIA": 4724993,
-    "SOLARINDS":  3412993,
-    "DIXON":      5552641,
-    "FORCEMOT":   2962689,
-    "BAJAJHLDNG": 78081,
-    "MARUTI":     2815745,
-    "ULTRACEMCO": 2952193,
-    "NEULANDLAB": 615937,
-    "ORACLE":     2748929,
-    "MCX":        7982337,
+    "AMBER": 303361,
     "BAJAJ-AUTO": 4267265,
+    "DIXON": 5552641,
+    "EICHERMOT": 232961,
+    "FORCEMOT": 2962689,
+    "GODFRYPHLP": 302337,
+    "KAYNES": 3095553,
+    "MARUTI": 2815745,
+    "MCX": 7982337,
+    "NEULANDLAB": 615937,
+    "ORACLE": 2748929,
+    "POWERINDIA": 4724993,
+    "SOLARINDS": 3412993,
+    "TRENT": 502785,
+    "ULTRACEMCO": 2952193,
 }
+# Instruments for live, real-time trading
 
 # A smaller, consistent set of instruments for backtesting
 BACKTEST_INSTRUMENTS = {
-    "DIXON":      5552641,
+    "DIXON": 5552641,
     "MARUTI": 2815745,
     "POWERINDIA": 4724993,
     "BOSCHLTD": 558337,
