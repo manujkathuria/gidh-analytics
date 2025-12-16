@@ -6,21 +6,20 @@ from service import config  # Import the config module
 
 REALTIME_INSTRUMENTS = {
     "AMBER": 303361,
+    "APOLLOHOSP": 40193,
+    "BRITANNIA": 140033,
     "BAJAJ-AUTO": 4267265,
     "DIXON": 5552641,
     "EICHERMOT": 232961,
-    "FORCEMOT": 2962689,
-    "GODFRYPHLP": 302337,
-    "KAYNES": 3095553,
+    "HEROMOTOCO": 345089,
     "MARUTI": 2815745,
     "MCX": 7982337,
-    "NEULANDLAB": 615937,
-    "ORACLE": 2748929,
+    "POLYCAB": 2455041,
     "POWERINDIA": 4724993,
     "SOLARINDS": 3412993,
-    "TRENT": 502785,
     "ULTRACEMCO": 2952193,
 }
+
 # Instruments for live, real-time trading
 
 # A smaller, consistent set of instruments for backtesting
