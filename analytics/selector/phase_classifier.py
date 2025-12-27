@@ -15,32 +15,98 @@ def classify_phase(candles: List[Candle]) -> Phase:
     if len(candles) < 30:
         return Phase.NO_PHASE
 
-    # Example: v1 FALLING Logic Implementation
+    # Priority order matters (strongest first)
     if _is_falling(candles):
         return Phase.FALLING
 
-    # Priority order: FALLING > RISING > ACCUMULATING > SELLING
-    # ... implement others ...
+    if _is_rising(candles):
+        return Phase.RISING
+
+    if _is_accumulating(candles):
+        return Phase.ACCUMULATING
+
+    if _is_selling(candles):
+        return Phase.SELLING
 
     return Phase.NO_PHASE
 
 
+# -------------------------------------------------
+# PHASE DETECTORS
+# -------------------------------------------------
+
 def _is_falling(candles: List[Candle]) -> bool:
-    # 1. Directional Bias: Current close lower than start of window
+    # Directional bias
     if candles[-1].close >= candles[0].close:
         return False
 
-    # 2. Lower Highs / Lower Lows (Simplified v1 check)
     recent = candles[-10:]
     older = candles[-20:-10]
+
+    # Lower highs
     if max(c.high for c in recent) >= max(c.high for c in older):
         return False
 
-    # 3. Range Location: Price in bottom 30% of 60-day range
-    full_min = min(c.low for c in candles)
-    full_max = max(c.high for c in candles)
-    price_range = full_max - full_min
-    if candles[-1].close > (full_min + 0.3 * price_range):
+    # Price near lower part of range
+    low = min(c.low for c in candles)
+    high = max(c.high for c in candles)
+    if (candles[-1].close - low) / (high - low) > 0.35:
+        return False
+
+    return True
+
+
+def _is_rising(candles: List[Candle]) -> bool:
+    if candles[-1].close <= candles[0].close:
+        return False
+
+    recent = candles[-10:]
+    older = candles[-20:-10]
+
+    # Higher lows
+    if min(c.low for c in recent) <= min(c.low for c in older):
+        return False
+
+    # Price near top of range
+    low = min(c.low for c in candles)
+    high = max(c.high for c in candles)
+    if (candles[-1].close - low) / (high - low) < 0.65:
+        return False
+
+    return True
+
+
+def _is_accumulating(candles: List[Candle]) -> bool:
+    # Sideways + low volatility
+    closes = [c.close for c in candles]
+    highs = [c.high for c in candles]
+    lows = [c.low for c in candles]
+
+    range_pct = (max(highs) - min(lows)) / max(closes[-1], 1e-9)
+
+    # Flat price movement
+    if abs(closes[-1] - closes[0]) > 0.02 * closes[0]:
+        return False
+
+    # Compression
+    if range_pct > 0.05:
+        return False
+
+    return True
+
+
+def _is_selling(candles: List[Candle]) -> bool:
+    # Distribution: high volatility, loss of upward momentum
+    closes = [c.close for c in candles]
+    highs = [c.high for c in candles]
+
+    volatility = (max(highs) - min(c.low for c in candles)) / closes[-1]
+
+    # Reject highs + unstable structure
+    if volatility < 0.05:
+        return False
+
+    if closes[-1] > closes[0]:
         return False
 
     return True
