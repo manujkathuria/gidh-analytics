@@ -1,6 +1,6 @@
 from datetime import datetime
-from service import config
-from service.logger import log
+from common import config
+from common.logger import log
 
 
 async def setup_schema(db_pool):

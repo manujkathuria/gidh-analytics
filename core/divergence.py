@@ -1,11 +1,10 @@
 # service/divergence.py
 
-import math
 from collections import deque
 from datetime import timedelta
 from typing import Dict
 
-from service.models import BarData
+from common.models import BarData
 
 # Configuration
 COMPOSITE_FEATURE_LOOKBACK_DURATION = timedelta(minutes=30)

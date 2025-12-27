@@ -1,11 +1,10 @@
-import asyncio
 import json
 from typing import List
 import asyncpg
 
-from service import config
-from service.logger import log
-from service.models import EnrichedTick, OrderDepth, BarData
+from common import config
+from common.logger import log
+from common.models import EnrichedTick, BarData
 
 
 async def batch_insert_ticks(db_pool, ticks: List[EnrichedTick]):

@@ -6,9 +6,9 @@ import pytz
 
 from kiteconnect import KiteTicker
 
-from service.logger import log
-import service.config as config
-from service.models import TickData, OrderDepth, DepthLevel
+from common.logger import log
+import common.config as config
+from common.models import TickData, OrderDepth, DepthLevel
 
 
 class WebSocketClient:

@@ -5,12 +5,12 @@ import heapq
 from dateutil.parser import isoparse
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List
 
-from service.logger import log
-import service.config as config
-from service.models import TickData, OrderDepth, DepthLevel
-from service.parameters import INSTRUMENT_MAP
+from common.logger import log
+import common.config as config
+from common.models import TickData, OrderDepth, DepthLevel
+from common.parameters import INSTRUMENT_MAP
 
 
 class FileReader:

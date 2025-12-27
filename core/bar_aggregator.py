@@ -5,9 +5,9 @@ from collections import deque
 from datetime import timedelta, datetime
 from typing import Dict, Deque, Optional, List, Tuple
 
-from service.logger import log
-from service.models import EnrichedTick, BarData
-from service.divergence import PatternDetector
+from common.logger import log
+from common.models import EnrichedTick, BarData
+from core.divergence import PatternDetector
 
 # --- Configuration ---
 INDICATOR_PERIOD = 14

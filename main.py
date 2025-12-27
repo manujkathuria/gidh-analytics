@@ -1,14 +1,18 @@
 import asyncio
-from service.pipeline import DataPipeline
-from service.logger import log
+from core.pipeline import DataPipeline
+from common.config import validate_config
+from common.logger import log
 
 async def main():
     """
     Main function to initialize and run the data pipeline.
     This is the primary entry point of the application.
     """
-    # The pipeline now configures itself from the service/config.py
-    # and service/parameters.py files.
+
+    # 1. Validate config before starting the engine
+    validate_config()
+
+    # 2. Start the Backend Engine
     pipeline = DataPipeline()
     try:
         await pipeline.run()

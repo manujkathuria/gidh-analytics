@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from service.logger import log
+from common.logger import log
 from datetime import datetime
 
 # Load environment variables from a .env file into the system's environment
@@ -75,7 +75,3 @@ def validate_config():
     log.info(f"Pipeline mode is set to: '{PIPELINE_MODE}'")
     log.info(f"Data window is set to: {DATA_WINDOW_MINUTES} minutes")
     log.info(f"Truncate tables on backtest: {TRUNCATE_TABLES_ON_BACKTEST}")
-
-
-# --- Run Validation on Import ---
-validate_config()

@@ -2,8 +2,8 @@ from collections import deque
 from typing import Dict, Any
 import numpy as np
 
-from service.models import TickData, EnrichedTick
-from service.logger import log
+from common.models import TickData, EnrichedTick
+from common.logger import log
 
 # Threshold for confirming a hidden order through refills.
 ICEBERG_CONFIRMATION_THRESHOLD = 2

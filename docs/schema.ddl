@@ -283,3 +283,10 @@ SELECT
   SUM("Net Iceberg") OVER (PARTITION BY stock_name, interval_agg ORDER BY "timestamp" RANGE BETWEEN INTERVAL '1 hour' PRECEDING AND CURRENT ROW) AS "Iceberg_Flow_60m"
 FROM
   aggregated_by_interval;
+
+
+CREATE TABLE public.stock_selections (
+    symbol TEXT PRIMARY KEY,
+    phase TEXT NOT NULL,
+    last_updated TIMESTAMPTZ DEFAULT now()
+);

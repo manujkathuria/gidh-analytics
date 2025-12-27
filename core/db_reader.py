@@ -2,7 +2,7 @@
 
 import asyncpg
 from typing import Dict
-from service.logger import log
+from common.logger import log
 from datetime import datetime
 
 

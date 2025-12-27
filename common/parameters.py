@@ -1,6 +1,6 @@
 # In service/parameters.py
 
-from service import config  # Import the config module
+from common import config
 
 # --- Define Instrument Sets ---
 

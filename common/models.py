@@ -91,3 +91,12 @@ class BarData:
     session_vwap: Optional[float] = None
     # This dictionary will be stored as JSONB in the database
     raw_scores: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class Candle:
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
