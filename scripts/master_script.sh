@@ -3,6 +3,7 @@
 # Master script for GIDH Analytics application
 
 # --- Configuration ---
+# Using a more dynamic way to find the root path, but keeping your original as fallback
 ROOT_PATH="/home/manuj/workspace/wealth-wave-ventures/gidh-analytics"
 SCRIPTS_DIR="${ROOT_PATH}/scripts"
 VENV_DIR="${ROOT_PATH}/.venv"
@@ -17,6 +18,10 @@ DB_USER="postgres"
 # Ensure log directory exists
 mkdir -p "${LOG_DIR}"
 
+# --- Environment Setup ---
+# Crucial: This allows imports like 'from common.parameters' to work across all scripts
+export PYTHONPATH="${ROOT_PATH}"
+
 # --- Functions ---
 
 start_python_app() {
@@ -25,12 +30,30 @@ start_python_app() {
 
     if [ -d "${VENV_DIR}" ]; then
         source "${VENV_DIR}/bin/activate"
+        # Run main.py which now handles its own config validation
         nohup python main.py >> "${LOG_DIR}/python_app.log" 2>&1 &
         echo $! > "${PYTHON_APP_PID_FILE}"
         deactivate
         echo "Python application started with PID $(cat "${PYTHON_APP_PID_FILE}")."
     else
         echo "Error: Virtual environment not found at ${VENV_DIR}"
+        return 1
+    fi
+}
+
+# New function to run the pre-market stock selection
+run_selection() {
+    echo "Running Pre-Market Stock Selection (Analytics)..."
+    cd "${ROOT_PATH}" || { echo "Error: Could not cd to ${ROOT_PATH}"; return 1; }
+
+    if [ -d "${VENV_DIR}" ]; then
+        source "${VENV_DIR}/bin/activate"
+        # Running as a module to correctly resolve subpackage imports
+        python -m analytics.selector.run
+        deactivate
+        echo "✅ Selection process finished."
+    else
+        echo "Error: Virtual environment not found."
         return 1
     fi
 }
@@ -82,6 +105,8 @@ run_login_script() {
         source "${VENV_DIR}/bin/activate"
     fi
 
+    # Ensuring the script can see the root packages if it evolves
+    export PYTHONPATH="${ROOT_PATH}"
     python login.py
 
     deactivate
@@ -155,7 +180,6 @@ run_maintenance() {
     echo "✅ Database maintenance completed successfully."
 }
 
-# --- NEW FUNCTION ---
 refresh_mv() {
     echo "Refreshing materialized view: large_trade_thresholds_mv..."
     docker exec -t "${DB_CONTAINER}" psql -U "${DB_USER}" -d "${DB_NAME}" -c "REFRESH MATERIALIZED VIEW large_trade_thresholds_mv;"
@@ -175,6 +199,10 @@ case "$1" in
     stop)
         stop_python_app >> "${LOG_DIR}/stop.log" 2>&1
         ;;
+    select)
+        # Added new select command for pre-market analytics
+        run_selection
+        ;;
     login)
         run_login_script
         ;;
@@ -187,13 +215,12 @@ case "$1" in
     maintain)
         run_maintenance
         ;;
-    # --- NEW KEY ---
     refresh)
         refresh_mv
         ;;
     *)
-        # --- UPDATED USAGE ---
-        echo "Usage: $0 {start|stop|login|backup|truncate|maintain|refresh}"
+        # Updated usage to include 'select'
+        echo "Usage: $0 {start|stop|select|login|backup|truncate|maintain|refresh}"
         exit 1
         ;;
 esac
