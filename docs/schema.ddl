@@ -285,8 +285,27 @@ FROM
   aggregated_by_interval;
 
 
-CREATE TABLE public.stock_selections (
-    symbol TEXT PRIMARY KEY,
+CREATE TABLE stock_state_history (
+    id SERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
     phase TEXT NOT NULL,
-    last_updated TIMESTAMPTZ DEFAULT now()
+    trend TEXT NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+
+
+-- Create the orderbook defense table
+CREATE TABLE IF NOT EXISTS public.orderbook_defense_levels (
+    instrument_token    INT NOT NULL,
+    timestamp           TIMESTAMPTZ NOT NULL,
+    price               NUMERIC NOT NULL,
+    side                TEXT NOT NULL,
+    defended_count      INT DEFAULT 0,
+    broken_count        INT DEFAULT 0,
+    refill_count        INT DEFAULT 0,
+    absorbed_qty        BIGINT DEFAULT 0
+);
+
+-- Convert to hypertable for optimized time-series performance
+SELECT create_hypertable('public.orderbook_defense_levels', 'timestamp', if_not_exists => TRUE);

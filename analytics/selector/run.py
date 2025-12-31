@@ -6,7 +6,7 @@ import asyncpg
 from dotenv import load_dotenv
 
 from common.parameters import REALTIME_INSTRUMENTS
-from analytics.selector.phase_classifier import classify_phase
+from analytics.selector.macro_classifier import classify_phase, classify_trend
 from analytics.selector.kite_adapter import KiteHistoricalAdapter
 
 # Load .env relative to this subpackage
@@ -36,26 +36,30 @@ async def run_selection():
 
         for symbol, token in REALTIME_INSTRUMENTS.items():
             try:
-                # 1. Fetch historical daily data
+                # 1. Fetch historical data (60 trading days)
                 candles = adapter.fetch_daily_candles(token, days=60)
-                if not candles: continue
+                if not candles or len(candles) < 60:
+                    continue
 
-                # 2. Classify phase
+                # 2. Classify market state
                 phase = classify_phase(candles)
+                trend = classify_trend(candles)
 
-                # 3. Update the SEPARATE table
-                await conn.execute("""
-                                   INSERT INTO public.stock_selections (symbol, phase, last_updated)
-                                   VALUES ($1, $2, NOW()) ON CONFLICT (symbol) DO
-                                   UPDATE
-                                       SET phase = EXCLUDED.phase, last_updated = NOW();
-                                   """, symbol, phase.value)
+                # 3. Store results
+                await conn.execute(
+                    """
+                    INSERT INTO stock_state_history (symbol, phase, trend, recorded_at)
+                    VALUES ($1, $2, $3, NOW())
+                    """,
+                    symbol,
+                    phase.value,
+                    trend.value
+                )
 
-                print(f"  → {symbol}: {phase.value}")
+                print(f"{symbol} → Phase: {phase.value}, Trend: {trend.value}")
 
             except Exception as e:
-                print(f"  ❌ Error for {symbol}: {e}")
-
+                print(f"❌ Error processing {symbol}: {e}")
     finally:
         await conn.close()
         print("📡 Analysis complete. DB connection closed.")
