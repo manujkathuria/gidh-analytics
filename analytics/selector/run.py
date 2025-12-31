@@ -37,7 +37,12 @@ async def run_selection():
         for symbol, token in REALTIME_INSTRUMENTS.items():
             try:
                 # 1. Fetch historical data (60 trading days)
-                candles = adapter.fetch_daily_candles(token, days=60)
+                lookback_days = 60
+                fetch_days = 90  # buffer for weekends & holidays
+
+                candles = adapter.fetch_daily_candles(token, days=fetch_days)
+                candles = candles[-lookback_days:]
+
                 if not candles or len(candles) < 60:
                     continue
 
