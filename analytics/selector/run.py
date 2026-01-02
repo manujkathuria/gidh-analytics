@@ -1,74 +1,97 @@
-# analytics/selector/run.py
-
 import asyncio
 import os
 import asyncpg
 from dotenv import load_dotenv
 
 from common.parameters import REALTIME_INSTRUMENTS
-from analytics.selector.macro_classifier import classify_phase, classify_trend
-from analytics.selector.kite_adapter import KiteHistoricalAdapter
-
-# Load .env relative to this subpackage
-dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.env'))
-load_dotenv(dotenv_path=dotenv_path)
+from analytics.selector.kite_adapter import KiteAdapter
+from analytics.selector.macro_engine import MacroEngine
 
 
-async def run_selection():
-    """
-    STANDALONE ANALYSIS SCRIPT:
-    Fetches data, classifies, and updates the separate table.
-    """
-    adapter = KiteHistoricalAdapter()
+# Load env
+load_dotenv()
 
-    # Connect directly using env variables
-    try:
-        conn = await asyncpg.connect(
-            database=os.getenv("DB_NAME"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD"),
-            host=os.getenv("DB_HOST"),
-            port=os.getenv("DB_PORT")
-        )
-        print("✅ Analysis script connected to DB.")
 
-        print(f"Analyzing {len(REALTIME_INSTRUMENTS)} instruments...")
+async def run():
+    print("🚀 Starting Daily Stock Snapshot Job")
 
-        for symbol, token in REALTIME_INSTRUMENTS.items():
-            try:
-                # 1. Fetch historical data (60 trading days)
-                lookback_days = 60
-                fetch_days = 90  # buffer for weekends & holidays
+    # Init services
+    adapter = KiteAdapter()
+    engine = MacroEngine()
 
-                candles = adapter.fetch_daily_candles(token, days=fetch_days)
-                candles = candles[-lookback_days:]
+    conn = await asyncpg.connect(
+        database=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT"),
+    )
 
-                if not candles or len(candles) < 60:
-                    continue
+    for stock_name, token in REALTIME_INSTRUMENTS.items():
+        try:
+            candles = adapter.fetch_daily_candles(token, days=45)
 
-                # 2. Classify market state
-                phase = classify_phase(candles)
-                trend = classify_trend(candles)
+            if not candles or len(candles) < 30:
+                print(f"⚠️ Skipping {stock_name}: insufficient data")
+                continue
 
-                # 3. Store results
-                await conn.execute(
-                    """
-                    INSERT INTO stock_state_history (symbol, phase, trend, recorded_at)
-                    VALUES ($1, $2, $3, NOW())
-                    """,
-                    symbol,
-                    phase.value,
-                    trend.value
+            metrics = engine.calculate_metrics(candles)
+            if not metrics:
+                continue
+
+            await conn.execute(
+                """
+                INSERT INTO daily_stock_snapshot (
+                    trade_date,
+                    stock_name,
+                    close_price,
+                    volume,
+                    avg_vol_1w,
+                    avg_vol_1m,
+                    volume_state,
+                    price_change_5d,
+                    price_change_20d,
+                    price_position,
+                    trend_bias
                 )
+                VALUES (
+                    CURRENT_DATE,
+                    $1, $2, $3, $4, $5,
+                    $6, $7, $8, $9, $10
+                )
+                ON CONFLICT (trade_date, stock_name)
+                DO UPDATE SET
+                    close_price = EXCLUDED.close_price,
+                    volume = EXCLUDED.volume,
+                    avg_vol_1w = EXCLUDED.avg_vol_1w,
+                    avg_vol_1m = EXCLUDED.avg_vol_1m,
+                    volume_state = EXCLUDED.volume_state,
+                    price_change_5d = EXCLUDED.price_change_5d,
+                    price_change_20d = EXCLUDED.price_change_20d,
+                    price_position = EXCLUDED.price_position,
+                    trend_bias = EXCLUDED.trend_bias
+                ;
+                """,
+                stock_name,
+                metrics["close"],
+                metrics["volume"],
+                metrics["avg_vol_1w"],
+                metrics["avg_vol_1m"],
+                metrics["volume_state"],
+                metrics["price_change_5d"],
+                metrics["price_change_20d"],
+                metrics["price_position"],
+                metrics["trend_bias"]
+            )
 
-                print(f"{symbol} → Phase: {phase.value}, Trend: {trend.value}")
+            print(f"✅ {stock_name} updated")
 
-            except Exception as e:
-                print(f"❌ Error processing {symbol}: {e}")
-    finally:
-        await conn.close()
-        print("📡 Analysis complete. DB connection closed.")
+        except Exception as e:
+            print(f"❌ Error processing {stock_name}: {e}")
+
+    await conn.close()
+    print("🎯 Daily snapshot completed.")
 
 
 if __name__ == "__main__":
-    asyncio.run(run_selection())
+    asyncio.run(run())
