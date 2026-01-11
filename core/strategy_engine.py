@@ -9,16 +9,19 @@ class StrategyEngine:
         self.db_pool = db_pool
         self.target_interval = "10m"
 
-        # --- RISK & REVENUE PARAMETERS ---
-        self.RISK_CASH_PER_TRADE = 5000  # Amount to risk in cash (e.g., ₹5000)
+        # --- CAPITAL & RISK MANAGEMENT ---
+        self.TOTAL_CAPITAL = 100000.0  # Initial ₹1 Lakh
+        self.RISK_PER_TRADE_PCT = 0.01  # Risk 1% (₹1,000) per trade
+        self.MAX_LEVERAGE = 5.0  # Max 5x Intraday Leverage
+        self.MAX_CONCURRENT_TRADES = 3  # Portfolio limit
 
-        # --- STRATEGY PARAMETERS (Validated by Research) ---
+        # --- STRATEGY PARAMETERS (Research Validated) ---
         self.THRESHOLD = -0.5  # High-Intensity Filter
-        self.BE_TRIGGER_PCT = 0.0012  # +0.12% move triggers Break-even
-        self.TP1_PCT = 0.0020  # 0.20% (Scale out 50% / De-risk)
-        self.TP2_PCT = 0.0045  # 0.45% (Markdown Phase Target)
-        self.SL_PCT = 0.0035  # 0.35% (Noise Buffer Stop)
-        self.TIME_EXIT_BARS = 15  # Safety Timeout (2.5 hours)
+        self.SL_PCT = 0.0035  # 0.35% Stop Loss
+        self.BE_TRIGGER_PCT = 0.0012  # Move to BE at +0.12% profit
+        self.TP1_PCT = 0.0020  # Scale out 50% at +0.20% profit
+        self.TP2_PCT = 0.0045  # Final target at +0.45%
+        self.SAFETY_TIMEOUT_BARS = 15  # Safety net (2.5 hours)
 
         # --- STATE MANAGEMENT ---
         self.active_trades = {}  # {stock_name: trade_details}
@@ -27,34 +30,35 @@ class StrategyEngine:
     async def run_logic(self, bar):
         """
         Main entry point called by the pipeline for every finalized bar.
-        Manages the lifecycle of institutional distribution trades.
+        Handles both trade management and new signal detection.
         """
         stock = bar.stock_name
 
-        # 1. Manage Active Trades (Manage the Phase)
+        # 1. Manage Active Positions
         if stock in self.active_trades:
             await self._manage_active_trade(bar)
             return
 
-        # 2. Filtering for Entry
+        # 2. Filtering
         if bar.interval != self.target_interval:
             return
 
-        # 3. Extract Divergence and Structure
+        # 3. Portfolio Limit Check
+        if len(self.active_trades) >= self.MAX_CONCURRENT_TRADES:
+            return
+
+        # 4. Extract Metrics
         scores = bar.raw_scores
         div = scores.get('divergence', {})
         div_obv = div.get('price_vs_obv', 0)
         div_clv = div.get('price_vs_clv', 0)
         structure = scores.get('structure', 'init')
-
-        # Typical Price used for the 'Trap' filter
         typical_price = (bar.high + bar.low + bar.close) / 3
 
-        # 4. Entry Condition: High Intensity + Price Trap + Non-Collapsed Structure
+        # 5. ENTRY CONDITION: Intensity + Trap + Structure Filter
         if div_obv < self.THRESHOLD and div_clv < self.THRESHOLD and structure != 'down':
-            # Ensure we are shorting into strength (Price > Typical)
             if bar.close > typical_price:
-                # Prevent re-triggering on the exact same bar
+                # Prevent re-triggering on same bar
                 last_ts = self.last_signal_timestamps.get(stock)
                 if last_ts and bar.timestamp <= last_ts:
                     return
@@ -63,19 +67,27 @@ class StrategyEngine:
 
     async def _execute_short_entry(self, bar, d_obv, d_clv, struct):
         entry_price = bar.close
-        stop_price = entry_price * (1 + self.SL_PCT)
 
-        # POSITION SIZING: Calculate quantity based on cash risk
-        # Risk per share = Stop Price - Entry Price
-        risk_per_share = stop_price - entry_price
-        quantity = int(self.RISK_CASH_PER_TRADE / risk_per_share) if risk_per_share > 0 else 1
+        # POSITION SIZING: Risk ₹1,000 per trade based on SL distance
+        cash_risk = self.TOTAL_CAPITAL * self.RISK_PER_TRADE_PCT
+        risk_per_share = entry_price * self.SL_PCT
+        quantity = int(cash_risk / risk_per_share) if risk_per_share > 0 else 0
+
+        # Leverage Safety Check (Max 5x)
+        max_allowed_exposure = self.TOTAL_CAPITAL * self.MAX_LEVERAGE
+        if (quantity * entry_price) > max_allowed_exposure:
+            quantity = int(max_allowed_exposure / entry_price)
+            log.warning(f"⚠️ Leverage cap hit for {bar.stock_name}. Sizing down.")
+
+        if quantity <= 0:
+            return
 
         trade = {
             'entry_price': entry_price,
             'quantity': quantity,
             'remaining_qty': quantity,
             'realized_pnl_cash': 0.0,
-            'stop_loss': stop_price,
+            'stop_loss': entry_price * (1 + self.SL_PCT),
             'tp1': entry_price * (1 - self.TP1_PCT),
             'tp2': entry_price * (1 - self.TP2_PCT),
             'be_trigger': entry_price * (1 - self.BE_TRIGGER_PCT),
@@ -88,10 +100,10 @@ class StrategyEngine:
         self.active_trades[bar.stock_name] = trade
         self.last_signal_timestamps[bar.stock_name] = bar.timestamp
 
-        log.info(f"🚀 [ENTRY] {bar.stock_name} SHORT {quantity} shares @ {entry_price} | Div: {round(d_obv, 2)}")
+        log.info(f"🚀 [ENTRY] {bar.stock_name} SHORT {quantity} shares @ {entry_price}")
 
-        # LOG TO DB: Open Record
-        signal_data = {
+        # Log to Database
+        await db_writer.insert_signal(self.db_pool, {
             'timestamp': bar.timestamp,
             'stock_name': bar.stock_name,
             'interval': bar.interval,
@@ -102,51 +114,45 @@ class StrategyEngine:
             'div_clv': d_clv,
             'structure': struct,
             'status': 'OPEN'
-        }
-        await db_writer.insert_signal(self.db_pool, signal_data)
+        })
 
     async def _manage_active_trade(self, bar):
-        """Monitors price action to adjust stops or exit the distribution phase."""
         t = self.active_trades[bar.stock_name]
         price = bar.close
         t['bar_count'] += 1
 
-        # 1. SIGNAL-BASED EXIT: Distribution Phase Resolved
+        # A. SIGNAL-BASED EXIT (Phase Resolved)
         div = bar.raw_scores.get('divergence', {})
         if div.get('price_vs_obv', 0) >= 0 or div.get('price_vs_clv', 0) >= 0:
             await self._close_position(bar, "SIGNAL_INVALIDATED")
             return
 
-        # 2. BREAK-EVEN MANAGEMENT
+        # B. BREAK-EVEN MANAGEMENT
         if not t['is_be_active'] and price <= t['be_trigger']:
             t['stop_loss'] = t['entry_price']
             t['is_be_active'] = True
             log.info(f"🛡️ [BE] {bar.stock_name} stop moved to Entry.")
 
-        # 3. TP1 SCALE-OUT (De-risking 50%)
+        # C. SCALE OUT (TP1)
         if not t['is_tp1_hit'] and price <= t['tp1']:
             scale_qty = int(t['quantity'] * 0.5)
-            # Profit = (Entry - Exit) * Qty
             profit = (t['entry_price'] - price) * scale_qty
             t['realized_pnl_cash'] += profit
             t['remaining_qty'] -= scale_qty
             t['is_tp1_hit'] = True
-            t['stop_loss'] = t['entry_price']  # Ensure BE
-            log.info(f"💰 [TP1] {bar.stock_name} Scaled out 50%. Realized: {round(profit, 2)}")
+            t['stop_loss'] = t['entry_price']  # De-risk completely
+            log.info(f"💰 [TP1] {bar.stock_name} Scaled 50%. Profit: ₹{round(profit, 2)}")
 
-        # 4. BRACKET & TIME EXITS
+        # D. FINAL BRACKET & SAFETY EXITS
         if price >= t['stop_loss']:
             reason = "BE_EXIT" if t['is_be_active'] else "STOP_LOSS"
             await self._close_position(bar, reason)
-
         elif price <= t['tp2']:
             await self._close_position(bar, "TP2_FULL_MARKDOWN")
-
-        elif t['bar_count'] >= self.TIME_EXIT_BARS:
+        elif t['bar_count'] >= self.SAFETY_TIMEOUT_BARS:
             await self._close_position(bar, "SAFETY_TIME_EXIT")
 
     async def _close_position(self, bar, reason):
-        """Finalizes the trade, logs the Revenue, and clears state."""
         t = self.active_trades.pop(bar.stock_name)
 
         # Calculate PnL for the remaining quantity
@@ -154,8 +160,11 @@ class StrategyEngine:
         total_pnl_cash = t['realized_pnl_cash'] + remaining_pnl
         pnl_pct = (total_pnl_cash / (t['entry_price'] * t['quantity'])) * 100
 
-        # LOG TO DB: Update Record
-        exit_data = {
+        # COMPOUNDING: Update capital for next trade sizing
+        self.TOTAL_CAPITAL += total_pnl_cash
+
+        # Log to DB
+        await db_writer.update_signal_exit(self.db_pool, {
             'stock_name': bar.stock_name,
             'entry_time': t['timestamp'],
             'exit_timestamp': bar.timestamp,
@@ -164,7 +173,6 @@ class StrategyEngine:
             'pnl_pct': pnl_pct,
             'pnl_cash': total_pnl_cash,
             'status': 'CLOSED'
-        }
-        await db_writer.update_signal_exit(self.db_pool, exit_data)
+        })
 
-        log.info(f"🏁 [EXIT] {bar.stock_name} via {reason} | Total Revenue: {round(total_pnl_cash, 2)}")
+        log.info(f"🏁 [EXIT] {bar.stock_name} via {reason} | Net PnL: ₹{round(total_pnl_cash, 2)}")
