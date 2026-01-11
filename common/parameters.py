@@ -5,8 +5,6 @@ from common import config
 # --- Define Instrument Sets ---
 
 REALTIME_INSTRUMENTS = {
-    "AKZOINDIA": 375553,
-    "AMBER": 303361,
     "APOLLOHOSP": 40193,
     "BAJAJ-AUTO": 4267265,
     "BRITANNIA": 140033,

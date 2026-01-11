@@ -9,6 +9,7 @@ from common.logger import log
 import common.config as config
 from common.parameters import INSTRUMENT_MAP
 from core.file_reader import FileReader
+from core.strategy_engine import StrategyEngine
 from core.websocket_client import WebSocketClient
 import core.db_writer as db_writer
 from core.feature_enricher import FeatureEnricher
@@ -48,7 +49,7 @@ class DataPipeline:
         # The enricher is now initialized without thresholds
         self.feature_enricher = FeatureEnricher()
         self.bar_aggregator_processor = BarAggregatorProcessor()
-
+        self.strategy_engine = None
         # Batching configuration
         self.tick_batch_size = 1000
         self.bar_batch_size = 100
@@ -74,7 +75,8 @@ class DataPipeline:
 
     async def processor_and_writer_coroutine(self):
         """
-        A single, powerful coroutine that consumes raw ticks and handles processing.
+        Primary coroutine that consumes raw ticks, enriches them,
+        aggregates bars, and triggers the strategy engine on finalized bars.
         """
         log.info("Primary processor and writer coroutine started.")
 
@@ -93,23 +95,47 @@ class DataPipeline:
                 raw_tick = raw_tick_message.get('data')
                 if not raw_tick: continue
 
-                # Enrich the tick
+                # 1. Enrichment: Calculate trade sign, large trade flags, and absorption
                 enriched_tick = self.feature_enricher.enrich_tick(raw_tick, self.data_window)
                 tick_batch.append(enriched_tick)
 
-                # Manage the global data window
+                # Manage the global data window for internal feature calculations
                 current_timestamp = enriched_tick.timestamp
                 self.data_window.append((current_timestamp, enriched_tick))
                 while self.data_window and \
                         (current_timestamp - self.data_window[0][0]).total_seconds() > self.data_window_seconds:
                     self.data_window.popleft()
 
-                # Process with the bar aggregator
-                updated_bars = self.bar_aggregator_processor.process_tick(enriched_tick)
-                if updated_bars:
-                    bar_batch.extend(updated_bars)
+                # 2. Aggregation & Strategy Logic
+                # We iterate through intervals to identify exactly when a bar is finalized.
+                from core.bar_aggregator import BAR_INTERVALS
 
-                # Check if it's time to write batches to DB
+                for interval in BAR_INTERVALS:
+                    agg_key = f"{enriched_tick.stock_name}-{int(interval.total_seconds())}"
+
+                    # Ensure the aggregator exists for this instrument/interval
+                    if agg_key not in self.bar_aggregator_processor.aggregators:
+                        from core.bar_aggregator import BarAggregator
+                        self.bar_aggregator_processor.aggregators[agg_key] = BarAggregator(
+                            enriched_tick.stock_name, enriched_tick.instrument_token, interval
+                        )
+
+                    agg = self.bar_aggregator_processor.aggregators[agg_key]
+
+                    # add_tick returns a BarData object ONLY when the previous bar is completed
+                    finalized_bar = agg.add_tick(enriched_tick)
+
+                    if finalized_bar:
+                        # --- CRITICAL: Trigger Strategy ONLY on Finalized Bars ---
+                        if self.strategy_engine:
+                            await self.strategy_engine.run_logic(finalized_bar)
+                        bar_batch.append(finalized_bar)
+
+                    # Always add the currently building bar to the batch for live updates in DB/Grafana
+                    if agg.building_bar:
+                        bar_batch.append(agg.building_bar)
+
+                # 3. Batch DB Writing
                 time_since_last_write = asyncio.get_event_loop().time() - last_write_time
                 if (len(tick_batch) >= self.tick_batch_size or
                         len(bar_batch) >= self.bar_batch_size or
@@ -123,6 +149,7 @@ class DataPipeline:
                         tick_batch.clear()
 
                     if bar_batch:
+                        # Use upsert to handle real-time updates of the 'building' bar
                         await db_writer.batch_upsert_features(self.db_pool, bar_batch)
                         bar_batch.clear()
 
@@ -131,7 +158,6 @@ class DataPipeline:
             except Exception as e:
                 log.error(f"Error in processor coroutine: {e}", exc_info=True)
             finally:
-                # Mark the task as done *only* after it's been processed
                 self.raw_tick_queue.task_done()
 
     async def start_data_source(self):
@@ -178,7 +204,7 @@ class DataPipeline:
         attach_task_monitor(processor_task, "Processor and Writer")
 
         data_source_task = asyncio.create_task(self.start_data_source())
-
+        self.strategy_engine = StrategyEngine(self.db_pool)
         try:
             if self.mode == 'backtesting':
                 await data_source_task

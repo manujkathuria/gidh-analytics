@@ -21,8 +21,31 @@ async def setup_schema(db_pool):
                 PRIMARY KEY (timestamp, stock_name)
             );
         """)
+
         await connection.execute("SELECT create_hypertable('live_ticks', 'timestamp', if_not_exists => TRUE);")
 
+        await connection.execute("""
+        CREATE TABLE IF NOT EXISTS public.live_signals (
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMPTZ NOT NULL,
+            stock_name TEXT NOT NULL,
+            interval TEXT NOT NULL,
+            side TEXT NOT NULL, -- 'SHORT'
+            entry_price DOUBLE PRECISION,
+            stop_loss DOUBLE PRECISION,
+            tp1 DOUBLE PRECISION,
+            tp2 DOUBLE PRECISION,
+            div_obv DOUBLE PRECISION,
+            div_clv DOUBLE PRECISION,
+            structure TEXT,
+            is_alerted BOOLEAN DEFAULT FALSE
+        );
+        """)
+
+        await connection.execute("""
+            CREATE INDEX IF NOT EXISTS live_signals_stock_time_idx ON live_signals (stock_name, timestamp);
+        """)
+        
         await connection.execute("""
             CREATE TABLE IF NOT EXISTS public.live_order_depth (
                 timestamp TIMESTAMPTZ NOT NULL, stock_name TEXT NOT NULL,
