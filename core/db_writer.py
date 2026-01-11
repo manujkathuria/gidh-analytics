@@ -124,22 +124,20 @@ async def batch_upsert_features(db_pool, bars: List[BarData]):
 
 
 async def insert_signal(pool, s):
-    """Initial log when a distribution phase is detected."""
     async with pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO public.live_signals 
-            (timestamp, stock_name, interval, side, entry_price, div_obv, div_clv, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        """, s['timestamp'], s['stock_name'], s['interval'], s['side'],
-             s['entry_price'], s['div_obv'], s['div_clv'], s['status'])
+            (timestamp, stock_name, interval, side, entry_price, quantity, div_obv, div_clv, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        """, s['timestamp'], s['stock_name'], s.get('interval', '10m'), s['side'],
+             s['entry_price'], s['quantity'], s['div_obv'], s['div_clv'], s['status'])
 
 async def update_signal_exit(pool, e):
-    """Updates the signal record when the trade/phase concludes."""
     async with pool.acquire() as conn:
         await conn.execute("""
             UPDATE public.live_signals 
             SET exit_timestamp = $1, exit_price = $2, exit_reason = $3, 
-                pnl_pct = $4, status = $5
-            WHERE stock_name = $6 AND timestamp = $7
+                pnl_pct = $4, realized_pnl_cash = $5, status = $6
+            WHERE stock_name = $7 AND timestamp = $8
         """, e['exit_timestamp'], e['exit_price'], e['exit_reason'],
-             e['pnl_pct'], e['status'], e['stock_name'], e['entry_time'])
+             e['pnl_pct'], e['pnl_cash'], e['status'], e['stock_name'], e['entry_time'])
