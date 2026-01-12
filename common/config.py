@@ -29,6 +29,8 @@ DATA_WINDOW_MINUTES = int(os.getenv("DATA_WINDOW_MINUTES", 60))
 # Convert "true" string to boolean
 TRUNCATE_TABLES_ON_BACKTEST = os.getenv("TRUNCATE_TABLES_ON_BACKTEST", "false").lower() == "true"
 
+ES_HOST = os.getenv("ES_HOST", "http://localhost:9200")
+ES_INDEX_SIGNALS = os.getenv("ES_INDEX_SIGNALS", "gidh-signals")
 
 def validate_config():
     """
