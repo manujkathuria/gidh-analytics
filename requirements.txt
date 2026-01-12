@@ -11,3 +11,4 @@ seaborn~=0.13.2
 matplotlib~=3.9.4
 kiteconnect~=5.0.1
 pytz~=2025.2
+elasticsearch>=8.0.0
