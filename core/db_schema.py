@@ -126,6 +126,7 @@ async def setup_schema(db_pool):
 
         # --- Create grafana_features_view ---
         log.info("Creating or replacing the Grafana features view...")
+        await connection.execute("DROP VIEW IF EXISTS public.grafana_features_view CASCADE;")
         await connection.execute("""
             CREATE OR REPLACE VIEW public.grafana_features_view AS
             SELECT
