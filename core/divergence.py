@@ -47,30 +47,49 @@ class PatternDetector:
         start_bar = bar_history[-lookback_bars]
 
         # --- 1. Calculate Base Changes ---
-        if start_bar.close == 0: return scores
+        if start_bar.close == 0:
+            return scores
+
         price_change = (current_bar.close - start_bar.close) / start_bar.close
 
+        # NEW: Calculate Session VWAP change (Institutional Cost Basis)
+        # Uses broker-provided average_traded_price stored in BarData.session_vwap
+        if (
+                start_bar.session_vwap
+                and current_bar.session_vwap
+                and start_bar.session_vwap > 0
+        ):
+            vwap_change = (
+                                  current_bar.session_vwap - start_bar.session_vwap
+                          ) / start_bar.session_vwap
+        else:
+            vwap_change = 0.0
+
         volume_in_window = sum(b.volume for b in list(bar_history)[-lookback_bars:])
-        if volume_in_window == 0: volume_in_window = 1
+        if volume_in_window == 0:
+            volume_in_window = 1
 
         large_volume_in_window = sum(
             b.raw_scores.get('large_buy_volume', 0) + b.raw_scores.get('large_sell_volume', 0)
             for b in list(bar_history)[-lookback_bars:]
         )
-        if large_volume_in_window == 0: large_volume_in_window = 1
+        if large_volume_in_window == 0:
+            large_volume_in_window = 1
 
         # --- 2. Calculate Normalized Indicator Changes (USING SMOOTHED VALUES) ---
-        cvd_change = float(current_bar.raw_scores.get('cvd_5m_smoothed', 0) - start_bar.raw_scores.get('cvd_5m_smoothed', 0)) / float(
+        cvd_change = float(
+            current_bar.raw_scores.get('cvd_5m_smoothed', 0) - start_bar.raw_scores.get('cvd_5m_smoothed', 0)) / float(
             volume_in_window)
         obv_change = float(current_bar.raw_scores.get('obv', 0) - start_bar.raw_scores.get('obv', 0)) / float(
             volume_in_window)
         lvc_change = float(
             current_bar.raw_scores.get('lvc_delta', 0) - start_bar.raw_scores.get('lvc_delta', 0)) / float(
             large_volume_in_window)
-        rsi_change = float(current_bar.raw_scores.get('rsi_smoothed', 50) - start_bar.raw_scores.get('rsi_smoothed', 50)) / 100.0
-        mfi_change = float(current_bar.raw_scores.get('mfi_smoothed', 50) - start_bar.raw_scores.get('mfi_smoothed', 50)) / 100.0
+        rsi_change = float(
+            current_bar.raw_scores.get('rsi_smoothed', 50) - start_bar.raw_scores.get('rsi_smoothed', 50)) / 100.0
+        mfi_change = float(
+            current_bar.raw_scores.get('mfi_smoothed', 50) - start_bar.raw_scores.get('mfi_smoothed', 50)) / 100.0
         clv_change = float(current_bar.raw_scores.get('clv_smoothed', 0) - start_bar.raw_scores.get('clv_smoothed', 0))
-
 
         # --- 3. Calculate All Divergence Scores ---
         # Tier 1: Price vs. Features
@@ -81,6 +100,8 @@ class PatternDetector:
         scores["price_vs_mfi"] = _calculate_divergence_score(price_change, mfi_change)
         scores["price_vs_clv"] = _calculate_divergence_score(price_change, clv_change)
 
+        # NEW: Price vs Institutional Cost Basis (Session VWAP)
+        scores["price_vs_vwap"] = _calculate_divergence_score(price_change, vwap_change)
 
         # Tier 2: LVC vs. Features
         scores["lvc_vs_cvd"] = _calculate_divergence_score(lvc_change, cvd_change)
