@@ -1,70 +1,54 @@
 #!/bin/bash
 
-# CONFIGURATION
-DATA_DIR="/home/manuj/workspace/wealth-wave-ventures/backup/backtest"
-ENV_FILE="/home/manuj/workspace/wealth-wave-ventures/gidh-analytics/.env"
-TMP_EXTRACT_DIR="/home/manuj/workspace/wealth-wave-ventures/gidh-analytics/data/kite"
-APP_DIR="/home/manuj/workspace/wealth-wave-ventures/gidh-analytics"
-VENV_DIR="${APP_DIR}/.venv"
-APP_MAIN="main.py"
-SLEEP_BETWEEN_RUNS=5
+# --- 1. Locate Environment ---
+# Finds the .env file relative to the script's location
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="$APP_DIR/.env"
 
-# 1. Get sorted list of backup files
+if [ ! -f "$ENV_FILE" ]; then
+    echo "❌ Error: .env file not found at $ENV_FILE"
+    exit 1
+fi
+
+# --- 2. Load Configuration from .env ---
+# This allows the script to read variables defined in your .env
+export $(grep -v '^#' "$ENV_FILE" | xargs)
+
+# Map .env variables to script variables
+DATA_DIR="${BACKTEST_BACKUP_DIR}"
+TMP_EXTRACT_DIR="${BACKTEST_DATA_DIRECTORY}"
+VENV_DIR="$APP_DIR/.venv"
+APP_MAIN="main.py"
+
+# --- 3. Process Backtest Files ---
 files=$(ls "$DATA_DIR"/backup_*.tar.xz | sort)
 
-# 2. Loop through each file in date order
 for file in $files; do
-    echo "Processing $file..."
-
-    # 3. Extract date from filename (backup_YYYY-MM-DD.tar.xz)
     base=$(basename "$file")
     date=${base#backup_}
     date=${date%.tar.xz}
 
-    echo "Setting BACKTESTING_DATE=$date"
+    echo "🚀 Processing $date using $file"
 
-    # 4. Update .env file (replace or append)
-    if grep -q "^BACKTEST_DATE=" "$ENV_FILE"; then
-        sed -i.bak "s/^BACKTEST_DATE=.*/BACKTEST_DATE=$date/" "$ENV_FILE"
-    else
-        echo "BACKTEST_DATE=$date" >> "$ENV_FILE"
-    fi
+    # Auto-update the date in .env for the Python app to read
+    sed -i "s/^BACKTEST_DATE=.*/BACKTEST_DATE=$date/" "$ENV_FILE"
 
-    # 5. Clear old extracted data and extract new one
+    # Extract data to the directory specified in .env
     rm -rf "$TMP_EXTRACT_DIR"
     mkdir -p "$TMP_EXTRACT_DIR"
     tar -xJf "$file" -C "$TMP_EXTRACT_DIR"
 
-    # 6. Run the Python app via venv
-    echo "Running backtest for $date"
-    cd "$APP_DIR" || { echo "❌ Could not cd into $APP_DIR"; exit 1; }
-
-    # --- ADDED: Activate Virtual Environment ---
-    if [ -f "${VENV_DIR}/bin/activate" ]; then
-        source "${VENV_DIR}/bin/activate"
-    else
-        echo "Error: Virtual environment not found at ${VENV_DIR}"
-        exit 1
-    fi
-
-    # --- MODIFIED: Run the python application ---
+    # Run the application
+    cd "$APP_DIR"
+    source "${VENV_DIR}/bin/activate"
     python "${APP_MAIN}"
 
     if [ $? -ne 0 ]; then
-        echo "❌ Python app failed for $date. Exiting."
-        # --- ADDED: Deactivate on failure ---
+        echo "❌ Failed at $date"
         deactivate
         exit 1
     fi
-
-    # --- ADDED: Deactivate Virtual Environment ---
     deactivate
-
-    echo "✅ Finished backtest for $date"
-    echo "-----------------------------"
-
-    # Optional delay
-    sleep "$SLEEP_BETWEEN_RUNS"
+    echo "✅ Finished $date"
 done
-
-echo "🎉 All backtests completed."
