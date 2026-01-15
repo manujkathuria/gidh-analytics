@@ -128,47 +128,65 @@ async def setup_schema(db_pool):
         log.info("Creating or replacing the Grafana features view...")
         await connection.execute("DROP VIEW IF EXISTS public.grafana_features_view CASCADE;")
         await connection.execute("""
-            CREATE OR REPLACE VIEW public.grafana_features_view AS
-            SELECT
-                timestamp, stock_name, interval, open, high, low, close, volume,
-                bar_vwap, session_vwap, instrument_token,
-                COALESCE((raw_scores->>'bar_delta')::BIGINT, 0) AS bar_delta,
-                COALESCE((raw_scores->>'large_buy_volume')::BIGINT, 0) AS large_buy_volume,
-                COALESCE((raw_scores->>'large_sell_volume')::BIGINT, 0) AS large_sell_volume,
-                COALESCE((raw_scores->>'passive_buy_volume')::BIGINT, 0) AS passive_buy_volume,
-                COALESCE((raw_scores->>'passive_sell_volume')::BIGINT, 0) AS passive_sell_volume,
-                COALESCE((raw_scores->>'cvd_5m')::BIGINT, 0) AS cvd_5m,
-                COALESCE((raw_scores->>'cvd_10m')::BIGINT, 0) AS cvd_10m,
-                COALESCE((raw_scores->>'cvd_30m')::BIGINT, 0) AS cvd_30m,
-                COALESCE((raw_scores->>'rsi')::DOUBLE PRECISION, 50.0) AS rsi,
-                COALESCE((raw_scores->>'mfi')::DOUBLE PRECISION, 50.0) AS mfi,
-                COALESCE((raw_scores->>'obv')::BIGINT, 0) AS obv,
-                COALESCE((raw_scores->>'lvc_delta')::BIGINT, 0) AS institutional_flow_delta,
-                COALESCE((raw_scores->>'clv')::DOUBLE PRECISION, 0.0) AS clv,
-                COALESCE((raw_scores->>'clv_smoothed')::DOUBLE PRECISION, 0.0) AS clv_smoothed,
-                COALESCE((raw_scores->>'cvd_5m_smoothed')::DOUBLE PRECISION, 0.0) AS cvd_5m_smoothed,
-                COALESCE((raw_scores->>'rsi_smoothed')::DOUBLE PRECISION, 50.0) AS rsi_smoothed,
-                COALESCE((raw_scores->>'mfi_smoothed')::DOUBLE PRECISION, 50.0) AS mfi_smoothed,
-                COALESCE((raw_scores->>'inst_flow_delta_smoothed')::DOUBLE PRECISION, 0.0) AS inst_flow_delta_smoothed,
-                COALESCE((raw_scores->>'HH')::BOOLEAN, FALSE) AS is_hh,
-                COALESCE((raw_scores->>'HL')::BOOLEAN, FALSE) AS is_hl,
-                COALESCE((raw_scores->>'LH')::BOOLEAN, FALSE) AS is_lh,
-                COALESCE((raw_scores->>'LL')::BOOLEAN, FALSE) AS is_ll,
-                COALESCE((raw_scores->>'inside')::BOOLEAN, FALSE) AS is_inside_bar,
-                COALESCE((raw_scores->>'outside')::BOOLEAN, FALSE) AS is_outside_bar,
-                COALESCE(raw_scores->>'structure', 'init') AS bar_structure,
-                COALESCE((raw_scores->'divergence'->>'price_vs_lvc')::DOUBLE PRECISION, 0.0) AS div_price_lvc,
-                COALESCE((raw_scores->'divergence'->>'price_vs_cvd')::DOUBLE PRECISION, 0.0) AS div_price_cvd,
-                COALESCE((raw_scores->'divergence'->>'price_vs_obv')::DOUBLE PRECISION, 0.0) AS div_price_obv,
-                COALESCE((raw_scores->'divergence'->>'price_vs_rsi')::DOUBLE PRECISION, 0.0) AS div_price_rsi,
-                COALESCE((raw_scores->'divergence'->>'price_vs_mfi')::DOUBLE PRECISION, 0.0) AS div_price_mfi,
-                COALESCE((raw_scores->'divergence'->>'price_vs_clv')::DOUBLE PRECISION, 0.0) AS div_price_clv,
-                COALESCE((raw_scores->'divergence'->>'lvc_vs_cvd')::DOUBLE PRECISION, 0.0) AS div_lvc_cvd,
-                COALESCE((raw_scores->'divergence'->>'lvc_vs_obv')::DOUBLE PRECISION, 0.0) AS div_lvc_obv,
-                COALESCE((raw_scores->'divergence'->>'lvc_vs_rsi')::DOUBLE PRECISION, 0.0) AS div_lvc_rsi,
-                COALESCE((raw_scores->'divergence'->>'lvc_vs_mfi')::DOUBLE PRECISION, 0.0) AS div_lvc_mfi
-            FROM
-                public.enriched_features;
+            CREATE OR REPLACE VIEW public.grafana_features_view
+            (timestamp, stock_name, interval, open, high, low, close, volume, bar_vwap, session_vwap, instrument_token,
+             bar_delta, large_buy_volume, large_sell_volume, passive_buy_volume, passive_sell_volume, cvd_5m, cvd_10m,
+             cvd_30m, rsi, mfi, obv, institutional_flow_delta, clv, clv_smoothed, cvd_5m_smoothed, rsi_smoothed,
+             mfi_smoothed, inst_flow_delta_smoothed, is_hh, is_hl, is_lh, is_ll, is_inside_bar, is_outside_bar,
+             bar_structure, div_price_lvc, div_price_cvd, div_price_obv, div_price_rsi, div_price_mfi, div_price_clv,
+             div_price_vwap, div_lvc_cvd, div_lvc_obv, div_lvc_rsi, div_lvc_mfi)
+            AS
+            SELECT enriched_features."timestamp",
+                   enriched_features.stock_name,
+                   enriched_features."interval",
+                   enriched_features.open,
+                   enriched_features.high,
+                   enriched_features.low,
+                   enriched_features.close,
+                   enriched_features.volume,
+                   enriched_features.bar_vwap,
+                   enriched_features.session_vwap,
+                   enriched_features.instrument_token,
+                   COALESCE((enriched_features.raw_scores ->> 'bar_delta'::text)::bigint, 0::bigint) AS bar_delta,
+                   COALESCE((enriched_features.raw_scores ->> 'large_buy_volume'::text)::bigint, 0::bigint) AS large_buy_volume,
+                   COALESCE((enriched_features.raw_scores ->> 'large_sell_volume'::text)::bigint, 0::bigint) AS large_sell_volume,
+                   COALESCE((enriched_features.raw_scores ->> 'passive_buy_volume'::text)::bigint, 0::bigint) AS passive_buy_volume,
+                   COALESCE((enriched_features.raw_scores ->> 'passive_sell_volume'::text)::bigint, 0::bigint) AS passive_sell_volume,
+                   COALESCE((enriched_features.raw_scores ->> 'cvd_5m'::text)::bigint, 0::bigint) AS cvd_5m,
+                   COALESCE((enriched_features.raw_scores ->> 'cvd_10m'::text)::bigint, 0::bigint) AS cvd_10m,
+                   COALESCE((enriched_features.raw_scores ->> 'cvd_30m'::text)::bigint, 0::bigint) AS cvd_30m,
+                   COALESCE((enriched_features.raw_scores ->> 'rsi'::text)::double precision, 50.0::double precision) AS rsi,
+                   COALESCE((enriched_features.raw_scores ->> 'mfi'::text)::double precision, 50.0::double precision) AS mfi,
+                   COALESCE((enriched_features.raw_scores ->> 'obv'::text)::bigint, 0::bigint) AS obv,
+                   COALESCE((enriched_features.raw_scores ->> 'lvc_delta'::text)::bigint, 0::bigint) AS institutional_flow_delta,
+                   COALESCE((enriched_features.raw_scores ->> 'clv'::text)::double precision, 0.0::double precision) AS clv,
+                   COALESCE((enriched_features.raw_scores ->> 'clv_smoothed'::text)::double precision, 0.0::double precision) AS clv_smoothed,
+                   COALESCE((enriched_features.raw_scores ->> 'cvd_5m_smoothed'::text)::double precision, 0.0::double precision) AS cvd_5m_smoothed,
+                   COALESCE((enriched_features.raw_scores ->> 'rsi_smoothed'::text)::double precision, 50.0::double precision) AS rsi_smoothed,
+                   COALESCE((enriched_features.raw_scores ->> 'mfi_smoothed'::text)::double precision, 50.0::double precision) AS mfi_smoothed,
+                   COALESCE((enriched_features.raw_scores ->> 'inst_flow_delta_smoothed'::text)::double precision, 0.0::double precision) AS inst_flow_delta_smoothed,
+                   COALESCE((enriched_features.raw_scores ->> 'HH'::text)::boolean, false) AS is_hh,
+                   COALESCE((enriched_features.raw_scores ->> 'HL'::text)::boolean, false) AS is_hl,
+                   COALESCE((enriched_features.raw_scores ->> 'LH'::text)::boolean, false) AS is_lh,
+                   COALESCE((enriched_features.raw_scores ->> 'LL'::text)::boolean, false) AS is_ll,
+                   COALESCE((enriched_features.raw_scores ->> 'inside'::text)::boolean, false) AS is_inside_bar,
+                   COALESCE((enriched_features.raw_scores ->> 'outside'::text)::boolean, false) AS is_outside_bar,
+                   COALESCE(enriched_features.raw_scores ->> 'structure'::text, 'init'::text) AS bar_structure,
+                   COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_lvc'::text)::double precision, 0.0::double precision) AS div_price_lvc,
+                   COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_cvd'::text)::double precision, 0.0::double precision) AS div_price_cvd,
+                   COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_obv'::text)::double precision, 0.0::double precision) AS div_price_obv,
+                   COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_rsi'::text)::double precision, 0.0::double precision) AS div_price_rsi,
+                   COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_mfi'::text)::double precision, 0.0::double precision) AS div_price_mfi,
+                   COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_clv'::text)::double precision, 0.0::double precision) AS div_price_clv,
+                   
+                   -- NEW: Mapping for Price vs Session-VWAP Divergence
+                   COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_vwap'::text)::double precision, 0.0::double precision) AS div_price_vwap,
+            
+                   COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_cvd'::text)::double precision, 0.0::double precision) AS div_lvc_cvd,
+                   COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_obv'::text)::double precision, 0.0::double precision) AS div_lvc_obv,
+                   COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_rsi'::text)::double precision, 0.0::double precision) AS div_lvc_rsi,
+                   COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_mfi'::text)::double precision, 0.0::double precision) AS div_lvc_mfi
+            FROM enriched_features;
         """)
         log.info("Grafana view 'grafana_features_view' is ready.")
 
@@ -243,25 +261,39 @@ async def setup_schema(db_pool):
 
 
 async def truncate_tables_if_needed(db_pool):
+    """
+    Cleans up data for a specific backtesta date.
+    Deletes ticks and features only for the target date to preserve history.
+    Truncates the order book entirely as it is highly transient.
+    """
     if config.PIPELINE_MODE == 'backtesting' and config.TRUNCATE_TABLES_ON_BACKTEST:
-        log.warning("Cleaning up tables for backtest run...")
+        log.warning("Performing targeted cleanup for backtesta run...")
         try:
             # Convert the date string from config to a date object
             backtest_date = datetime.strptime(config.BACKTEST_DATE_STR, '%Y-%m-%d').date()
 
             async with db_pool.acquire() as connection:
-                # Delete any existing tick data for the specific backtest date
+                # 1. Targeted Delete: Live Ticks
                 log.info(f"Deleting existing ticks from live_ticks for date: {backtest_date}")
                 await connection.execute(
                     'DELETE FROM public.live_ticks WHERE "timestamp"::date = $1;',
-                    backtest_date  # Pass the date object here
+                    backtest_date
                 )
 
-                # Truncate the other tables to ensure they are empty
-                log.info("Truncating 'live_order_depth' and 'enriched_features' tables.")
+                # 2. Targeted Delete: Enriched Features (Preserves other dates)
+                log.info(f"Deleting existing features from enriched_features for date: {backtest_date}")
                 await connection.execute(
-                    "TRUNCATE TABLE public.live_order_depth, public.enriched_features RESTART IDENTITY;")
-            log.info("Successfully cleaned up tables for the backtest.")
+                    'DELETE FROM public.enriched_features WHERE "timestamp"::date = $1;',
+                    backtest_date
+                )
+
+                # 3. Full Truncate: Live Order Depth (No problem to truncate)
+                log.info("Truncating 'live_order_depth' table to ensure a clean L2 snapshot.")
+                await connection.execute(
+                    "TRUNCATE TABLE public.live_order_depth RESTART IDENTITY;"
+                )
+
+            log.info(f"Successfully prepared database for backtesta on {backtest_date}.")
         except Exception as e:
             log.error(f"Failed to clean up tables: {e}", exc_info=True)
             raise
