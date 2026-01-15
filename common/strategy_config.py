@@ -1,39 +1,31 @@
 # common/strategy_config.py
 
 # ==============================================================================
-# GIDH ANALYTICS: 3-SENSOR MARKET MODEL CONFIGURATION
+# GIDH ANALYTICS: OPTIMIZED INSTITUTIONAL CONFIG (10 AM - 2 PM IST)
 # ==============================================================================
 
-# --- 1. REGIME SENSORS (Directional Bias - 5m) ---
-# Defines the strength required to establish a valid BULL or BEAR environment.
-# PATH: Measures price structure (Higher Highs / Lower Lows).
-# COST: Measures institutional value (Average of VWAP and OBV).
-PATH_REGIME_THRESHOLD = 0.25  # Strength of structure_ratio
-COST_REGIME_THRESHOLD = 0.25  # Alignment of institutional positioning
+# --- 1. REGIME SENSORS (Directional Bias - 10m) ---
+# Set to 0.25 based on the balanced performance of Dixon/Solarinds/Trent.
+PATH_REGIME_THRESHOLD = 0.25
+COST_REGIME_THRESHOLD = 0.25
 
-# --- 2. EXIT & CHOP FILTERS (Trend Validation - 5m) ---
-# Defines when a trend has lost conviction or institutions have flipped.
-PATH_CHOP_THRESHOLD = 0.15    # Exit if PATH enters sideways range [-0.15, 0.15]
-COST_EXIT_THRESHOLD = 0.0     # Exit if institutions move against the trade
+# --- 2. EXIT & CHOP FILTERS (Trend Validation - 10m) ---
+# WIDENED: Set to 0.10. Maruti and Solarinds thrived with this 'C' value.
+# It allows for sideways movement without panicking.
+PATH_CHOP_THRESHOLD = 0.10
+COST_EXIT_THRESHOLD = 0.0
 
-# --- 3. TIMING & TAPE SENSOR (Execution - 3m) ---
-# Defines the sensitivity of the tape pullback for entries and exhaustion for exits.
-# PRESSURE: Based on Candle Location Value (CLV) divergence.
-PRESSURE_ENTRY_THRESHOLD = 0.35   # Min pullback intensity to trigger entry
-PRESSURE_EXIT_THRESHOLD = 0.75    # Panic trigger for extreme tape moves (e.g. news/shocks)
+# --- 3. TIMING & TAPE SENSOR (Execution - 5m) ---
+# INCREASED: Set to 0.40 (The 'T' parameter).
+# This forces the engine to wait for deeper pullbacks, which was
+# the key to Maruti and Dixon's high win rates.
+PRESSURE_ENTRY_THRESHOLD = 0.40
+PRESSURE_EXIT_THRESHOLD = 0.90
 
 # --- 4. RISK MANAGEMENT (Safety) ---
-# The primary price-based circuit breaker for every trade.
-STOP_LOSS_PCT = 0.0030           # 0.30% Hard Stop Loss
+# 0.50% is the institutional sweet spot for Dixon/Solar volatility.
+STOP_LOSS_PCT = 0.0050
 
 # --- 5. OPERATIONAL INTERVALS ---
-# Determines which finalized bars trigger specific parts of the logic engine.
-REGIME_INTERVAL = "10m"           # Timeframe for Trend and Institutional Analysis
-TIMING_INTERVAL = "5m"           # Timeframe for Tape Execution and Pullbacks
-
-# ==============================================================================
-# NOTES:
-# 1. EFFORT (LVC) is excluded to avoid noise from large-trade detection.
-# 2. Entries require REGIME agreement (5m) and a PRESSURE pullback (3m).
-# 3. Exits can be triggered by 5m (Structural/Value change) or 3m (Risk/Panic).
-# ==============================================================================
+REGIME_INTERVAL = "10m"
+TIMING_INTERVAL = "5m"
