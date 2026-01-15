@@ -8,69 +8,108 @@ class StrategyEngine:
     def __init__(self, db_pool):
         self.db_pool = db_pool
         self.es = ESLogger()
-        self.target_interval = "10m"
-        self.THRESHOLD = 0.5
 
-        # State tracking: {stock: {'obv': state, 'clv': state, 'active_side': side}}
-        self.last_states = {}
+        # State tracking per stock: {stock_name: state_dict}
+        self.states = {}
 
     async def run_logic(self, bar):
+        """
+        Processes finalized bars to determine market regime (5m)
+        and trigger entries/exits (3m). LVC (Effort) is excluded.
+        """
         stock = bar.stock_name
-        if bar.interval != self.target_interval:
-            return
+        interval = bar.interval
 
-        if stock not in self.last_states:
-            self.last_states[stock] = {'obv': 'neutral', 'clv': 'neutral', 'active_side': None}
+        # Initialize state for new stocks
+        if stock not in self.states:
+            self.states[stock] = {
+                'regime': 'NO_TRADE',
+                'position': 'NONE',
+                'path_5m': 0.0,
+                'cost_5m': 0.0,
+                'pressure_3m': 0.0
+            }
 
+        state = self.states[stock]
         div = bar.raw_scores.get('divergence', {})
-        obv_val = div.get('price_vs_obv', 0.0)
-        clv_val = div.get('price_vs_clv', 0.0)
 
-        curr_obv = self._get_state(obv_val)
-        curr_clv = self._get_state(clv_val)
-        prev = self.last_states[stock]
+        # --- 1. REGIME ENGINE (5-Minute Bars) ---
+        # Defines the 'What' and 'Where' of the trade
+        if interval == "5m":
+            # Sensors: PATH (Structure) + COST (Institutional Positioning)
+            state['path_5m'] = bar.raw_scores.get('structure_ratio', 0.0)
+            state['cost_5m'] = (div.get('price_vs_vwap', 0.0) + div.get('price_vs_obv', 0.0)) / 2
 
-        # 1. EXIT LOGIC: Conviction Flip (CLV reverses)
-        if prev['active_side']:
-            if (prev['active_side'] == 'LONG' and curr_clv == 'bearish') or \
-                    (prev['active_side'] == 'SHORT' and curr_clv == 'bullish'):
-                await self._fire_log(bar, "EXIT", prev['active_side'], div, "CONVICTION_FLIP")
-                self.last_states[stock]['active_side'] = None
-                # Do not return; we want to check if a new signal starts immediately
+            # Define Regime: Requires both trend and institutional alignment
+            if state['path_5m'] > 0.25 and state['cost_5m'] > 0.25:
+                state['regime'] = "BULL"
+            elif state['path_5m'] < -0.25 and state['cost_5m'] < -0.25:
+                state['regime'] = "BEAR"
+            else:
+                state['regime'] = "NO_TRADE"
 
-        # 2. TRIGGER/WATCH LOGIC (On State Change)
-        if curr_obv != prev['obv'] or curr_clv != prev['clv']:
-            # BULLISH
-            if curr_obv == 'bullish':
-                if curr_clv == 'bullish':
-                    await self._fire_log(bar, "ENTRY", "LONG", div)
-                    self.last_states[stock]['active_side'] = 'LONG'
-                else:
-                    await self._fire_log(bar, "WATCH", "BULLISH", div)
+            # Check for 5m Exit Rules (Institutional & Trend Stops)
+            if state['position'] != 'NONE':
+                await self._check_5m_exits(bar, state)
 
-            # BEARISH
-            elif curr_obv == 'bearish':
-                if curr_clv == 'bearish':
-                    await self._fire_log(bar, "ENTRY", "SHORT", div)
-                    self.last_states[stock]['active_side'] = 'SHORT'
-                else:
-                    await self._fire_log(bar, "WATCH", "BEARISH", div)
+        # --- 2. ENTRY & TIMING ENGINE (3-Minute Bars) ---
+        # Defines the 'When' (Tape pullbacks)
+        elif interval == "3m":
+            # Sensor: PRESSURE (Tape control via CLV)
+            state['pressure_3m'] = div.get('price_vs_clv', 0.0)
 
-            # 3. VWAP REVERSAL: The 14:30 Trap Detection
-            dist_pct = abs(bar.close - bar.session_vwap) / bar.session_vwap if bar.session_vwap else 0
-            if dist_pct > 0.005:  # Price is >0.5% away from VWAP
-                if (bar.close > bar.session_vwap and curr_obv == 'bearish'):
-                    await self._fire_log(bar, "REVERSAL_WARN", "SHORT_FADE", div)
+            # Entry Logic: Only if no current position and in a valid regime
+            if state['position'] == 'NONE':
+                await self._check_entries(bar, state)
+            # Panic Exit Logic: React to extreme tape shifts
+            else:
+                await self._check_3m_exits(bar, state)
 
-        # Update persistent state
-        self.last_states[stock].update({'obv': curr_obv, 'clv': curr_clv})
+    async def _check_entries(self, bar, state):
+        div = bar.raw_scores.get('divergence', {})
 
-    def _get_state(self, val):
-        if val > self.THRESHOLD: return 'bullish'
-        if val < -self.THRESHOLD: return 'bearish'
-        return 'neutral'
+        # LONG ENTRY: BULL Regime + Retail Selling (Tape Pullback)
+        if state['regime'] == "BULL" and state['pressure_3m'] < -0.4:
+            state['position'] = 'LONG'
+            await self._fire_log(bar, "ENTRY", "LONG", div, "REGIME_ALIGN_PULLBACK")
 
-    async def _fire_log(self, bar, event, side, div, reason=None):
-        """Console output and ES ingestion."""
-        log.info(f"🔔 [{event}] {bar.stock_name} {side} @ {bar.close}")
-        await self.es.log_event(bar.stock_name, event, side, bar.close, bar.session_vwap, div, reason)
+        # SHORT ENTRY: BEAR Regime + Retail Chasing (Tape Rally)
+        elif state['regime'] == "BEAR" and state['pressure_3m'] > 0.4:
+            state['position'] = 'SHORT'
+            await self._fire_log(bar, "ENTRY", "SHORT", div, "REGIME_ALIGN_PULLBACK")
+
+    async def _check_5m_exits(self, bar, state):
+        div = bar.raw_scores.get('divergence', {})
+
+        # Institutional Stop: Exit if the average institutional cost basis flips
+        if (state['position'] == 'LONG' and state['cost_5m'] < 0) or \
+                (state['position'] == 'SHORT' and state['cost_5m'] > 0):
+            await self._fire_log(bar, "EXIT", state['position'], div, "COST_FLIP")
+            state['position'] = 'NONE'
+
+        # Trend Stop: Exit if the trend loses conviction (Path collapses)
+        elif -0.15 < state['path_5m'] < 0.15:
+            await self._fire_log(bar, "EXIT", state['position'], div, "TREND_BREAK")
+            state['position'] = 'NONE'
+
+    async def _check_3m_exits(self, bar, state):
+        div = bar.raw_scores.get('divergence', {})
+
+        # Panic Exit: Exit on extreme pressure readings (squeeze or news shock)
+        if (state['position'] == 'LONG' and state['pressure_3m'] > 0.8) or \
+                (state['position'] == 'SHORT' and state['pressure_3m'] < -0.8):
+            await self._fire_log(bar, "EXIT", state['position'], div, "PRESSURE_EXHAUSTION")
+            state['position'] = 'NONE'
+
+    async def _fire_log(self, bar, event, side, div, reason):
+        """Standardized logging to console and Elasticsearch ingestion."""
+        log.info(f"🔔 [{event}] {bar.stock_name} {side} @ {bar.close} | Reason: {reason}")
+        await self.es.log_event(
+            bar.stock_name,
+            event,
+            side,
+            bar.close,
+            bar.session_vwap,
+            div,
+            reason
+        )
