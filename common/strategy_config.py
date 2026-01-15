@@ -19,8 +19,8 @@ COST_EXIT_THRESHOLD = 0.0     # Exit if institutions move against the trade
 # --- 3. TIMING & TAPE SENSOR (Execution - 3m) ---
 # Defines the sensitivity of the tape pullback for entries and exhaustion for exits.
 # PRESSURE: Based on Candle Location Value (CLV) divergence.
-PRESSURE_ENTRY_THRESHOLD = 0.4   # Min pullback intensity to trigger entry
-PRESSURE_EXIT_THRESHOLD = 0.8    # Panic trigger for extreme tape moves (e.g. news/shocks)
+PRESSURE_ENTRY_THRESHOLD = 0.35   # Min pullback intensity to trigger entry
+PRESSURE_EXIT_THRESHOLD = 0.75    # Panic trigger for extreme tape moves (e.g. news/shocks)
 
 # --- 4. RISK MANAGEMENT (Safety) ---
 # The primary price-based circuit breaker for every trade.
@@ -28,8 +28,8 @@ STOP_LOSS_PCT = 0.0030           # 0.30% Hard Stop Loss
 
 # --- 5. OPERATIONAL INTERVALS ---
 # Determines which finalized bars trigger specific parts of the logic engine.
-REGIME_INTERVAL = "5m"           # Timeframe for Trend and Institutional Analysis
-TIMING_INTERVAL = "3m"           # Timeframe for Tape Execution and Pullbacks
+REGIME_INTERVAL = "10m"           # Timeframe for Trend and Institutional Analysis
+TIMING_INTERVAL = "5m"           # Timeframe for Tape Execution and Pullbacks
 
 # ==============================================================================
 # NOTES:

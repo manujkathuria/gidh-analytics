@@ -1,5 +1,7 @@
 import logging
+import os
 import sys
+
 
 def setup_logger():
     """
@@ -13,7 +15,10 @@ def setup_logger():
     logging.getLogger("kiteconnect").setLevel(logging.CRITICAL)
 
     logger = logging.getLogger("DataPipelineLogger")
-    logger.setLevel(logging.INFO) # Set the minimum level of messages to handle
+    if os.getenv("PIPELINE_MODE") == 'backtesting':
+        logger.setLevel(logging.WARNING)
+    else:
+        logger.setLevel(logging.INFO)
 
     # Prevent the logger from having duplicate handlers if this function is called multiple times.
     if logger.hasHandlers():
@@ -30,6 +35,7 @@ def setup_logger():
     logger.addHandler(handler)
 
     return logger
+
 
 # Create a single, module-level logger instance that can be imported by other parts of the application.
 log = setup_logger()
