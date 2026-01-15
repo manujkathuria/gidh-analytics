@@ -2,10 +2,15 @@
 
 from common.logger import log
 from core.es_logger import ESLogger
+from common import strategy_config as s_cfg
 
 
 class StrategyEngine:
     def __init__(self, db_pool):
+        """
+        Initializes the 3-Sensor Trading Engine.
+        Sensors: PATH (Structure), COST (Institutional Value), PRESSURE (Tape Timing).
+        """
         self.db_pool = db_pool
         self.es = ESLogger()
 
@@ -14,102 +19,135 @@ class StrategyEngine:
 
     async def run_logic(self, bar):
         """
-        Processes finalized bars to determine market regime (5m)
-        and trigger entries/exits (3m). LVC (Effort) is excluded.
+        Main entry point triggered by the DataPipeline on finalized bars.
+        Routes bars to the correct processing engine based on interval.
         """
         stock = bar.stock_name
         interval = bar.interval
 
-        # Initialize state for new stocks
+        # Initialize state for new stocks if not present
         if stock not in self.states:
             self.states[stock] = {
                 'regime': 'NO_TRADE',
                 'position': 'NONE',
+                'entry_price': 0.0,
+                'stop_price': 0.0,
                 'path_5m': 0.0,
                 'cost_5m': 0.0,
                 'pressure_3m': 0.0
             }
 
-        state = self.states[stock]
+        # Route to specific timeframe logic
+        if interval == s_cfg.REGIME_INTERVAL:
+            await self._process_regime(bar)
+        elif interval == s_cfg.TIMING_INTERVAL:
+            await self._process_timing(bar)
+
+    async def _process_regime(self, bar):
+        """
+        5-Minute Engine: Defines Direction and Institutional alignment.
+        """
+        state = self.states[bar.stock_name]
         div = bar.raw_scores.get('divergence', {})
 
-        # --- 1. REGIME ENGINE (5-Minute Bars) ---
-        # Defines the 'What' and 'Where' of the trade
-        if interval == "5m":
-            # Sensors: PATH (Structure) + COST (Institutional Positioning)
-            state['path_5m'] = bar.raw_scores.get('structure_ratio', 0.0)
-            state['cost_5m'] = (div.get('price_vs_vwap', 0.0) + div.get('price_vs_obv', 0.0)) / 2
+        # Update Sensors
+        state['path_5m'] = bar.raw_scores.get('structure_ratio', 0.0)
+        state['cost_5m'] = (div.get('price_vs_vwap', 0.0) + div.get('price_vs_obv', 0.0)) / 2
 
-            # Define Regime: Requires both trend and institutional alignment
-            if state['path_5m'] > 0.25 and state['cost_5m'] > 0.25:
-                state['regime'] = "BULL"
-            elif state['path_5m'] < -0.25 and state['cost_5m'] < -0.25:
-                state['regime'] = "BEAR"
-            else:
-                state['regime'] = "NO_TRADE"
+        # Define Market Regime
+        if state['path_5m'] > s_cfg.PATH_REGIME_THRESHOLD and state['cost_5m'] > s_cfg.COST_REGIME_THRESHOLD:
+            state['regime'] = "BULL"
+        elif state['path_5m'] < -s_cfg.PATH_REGIME_THRESHOLD and state['cost_5m'] < -s_cfg.COST_REGIME_THRESHOLD:
+            state['regime'] = "BEAR"
+        else:
+            state['regime'] = "NO_TRADE"
 
-            # Check for 5m Exit Rules (Institutional & Trend Stops)
-            if state['position'] != 'NONE':
-                await self._check_5m_exits(bar, state)
+        # If in a trade, check for 5m Exit Rules (Institutional flip or Trend death)
+        if state['position'] != 'NONE':
+            await self._check_5m_exits(bar, state)
 
-        # --- 2. ENTRY & TIMING ENGINE (3-Minute Bars) ---
-        # Defines the 'When' (Tape pullbacks)
-        elif interval == "3m":
-            # Sensor: PRESSURE (Tape control via CLV)
-            state['pressure_3m'] = div.get('price_vs_clv', 0.0)
+    async def _process_timing(self, bar):
+        """
+        3-Minute Engine: Handles Entry timing and immediate risk management.
+        """
+        state = self.states[bar.stock_name]
+        div = bar.raw_scores.get('divergence', {})
 
-            # Entry Logic: Only if no current position and in a valid regime
-            if state['position'] == 'NONE':
-                await self._check_entries(bar, state)
-            # Panic Exit Logic: React to extreme tape shifts
-            else:
-                await self._check_3m_exits(bar, state)
+        # Update Tape Sensor
+        state['pressure_3m'] = div.get('price_vs_clv', 0.0)
+
+        if state['position'] == 'NONE':
+            # Look for pullbacks in valid regimes
+            await self._check_entries(bar, state)
+        else:
+            # Monitor risk on every 3m bar
+            await self._check_hard_stop(bar, state)
+            await self._check_3m_exits(bar, state)
 
     async def _check_entries(self, bar, state):
+        """Logic for counter-retail pullback entries."""
         div = bar.raw_scores.get('divergence', {})
+        price = bar.close
 
-        # LONG ENTRY: BULL Regime + Retail Selling (Tape Pullback)
-        if state['regime'] == "BULL" and state['pressure_3m'] < -0.4:
+        # LONG: Bull Regime + Tape Pullback (Retail Selling)
+        if state['regime'] == "BULL" and state['pressure_3m'] < -s_cfg.PRESSURE_ENTRY_THRESHOLD:
             state['position'] = 'LONG'
+            state['entry_price'] = price
+            state['stop_price'] = price * (1 - s_cfg.STOP_LOSS_PCT)
             await self._fire_log(bar, "ENTRY", "LONG", div, "REGIME_ALIGN_PULLBACK")
 
-        # SHORT ENTRY: BEAR Regime + Retail Chasing (Tape Rally)
-        elif state['regime'] == "BEAR" and state['pressure_3m'] > 0.4:
+        # SHORT: Bear Regime + Tape Rally (Retail Chasing)
+        elif state['regime'] == "BEAR" and state['pressure_3m'] > s_cfg.PRESSURE_ENTRY_THRESHOLD:
             state['position'] = 'SHORT'
+            state['entry_price'] = price
+            state['stop_price'] = price * (1 + s_cfg.STOP_LOSS_PCT)
             await self._fire_log(bar, "ENTRY", "SHORT", div, "REGIME_ALIGN_PULLBACK")
 
     async def _check_5m_exits(self, bar, state):
+        """5m Rules: Institutional flip or Trend death."""
         div = bar.raw_scores.get('divergence', {})
 
-        # Institutional Stop: Exit if the average institutional cost basis flips
-        if (state['position'] == 'LONG' and state['cost_5m'] < 0) or \
-                (state['position'] == 'SHORT' and state['cost_5m'] > 0):
+        # COST Flip: Institutions moved against us
+        if (state['position'] == 'LONG' and state['cost_5m'] < s_cfg.COST_EXIT_THRESHOLD) or \
+                (state['position'] == 'SHORT' and state['cost_5m'] > s_cfg.COST_EXIT_THRESHOLD):
             await self._fire_log(bar, "EXIT", state['position'], div, "COST_FLIP")
             state['position'] = 'NONE'
 
-        # Trend Stop: Exit if the trend loses conviction (Path collapses)
-        elif -0.15 < state['path_5m'] < 0.15:
+        # Trend Break: PATH fell into chop range
+        elif -s_cfg.PATH_CHOP_THRESHOLD < state['path_5m'] < s_cfg.PATH_CHOP_THRESHOLD:
             await self._fire_log(bar, "EXIT", state['position'], div, "TREND_BREAK")
             state['position'] = 'NONE'
 
+    async def _check_hard_stop(self, bar, state):
+        """Standard 0.30% Price-based Stop Loss."""
+        if (state['position'] == 'LONG' and bar.close <= state['stop_price']) or \
+                (state['position'] == 'SHORT' and bar.close >= state['stop_price']):
+            await self._fire_log(bar, "EXIT", state['position'], {}, "HARD_STOP_LOSS")
+            state['position'] = 'NONE'
+
     async def _check_3m_exits(self, bar, state):
+        """3m Rule: Panic exhaustion exit."""
         div = bar.raw_scores.get('divergence', {})
 
-        # Panic Exit: Exit on extreme pressure readings (squeeze or news shock)
-        if (state['position'] == 'LONG' and state['pressure_3m'] > 0.8) or \
-                (state['position'] == 'SHORT' and state['pressure_3m'] < -0.8):
+        if (state['position'] == 'LONG' and state['pressure_3m'] > s_cfg.PRESSURE_EXIT_THRESHOLD) or \
+                (state['position'] == 'SHORT' and state['pressure_3m'] < -s_cfg.PRESSURE_EXIT_THRESHOLD):
             await self._fire_log(bar, "EXIT", state['position'], div, "PRESSURE_EXHAUSTION")
             state['position'] = 'NONE'
 
     async def _fire_log(self, bar, event, side, div, reason):
-        """Standardized logging to console and Elasticsearch ingestion."""
+        """Centralized logging for console and Elasticsearch context."""
+        state = self.states[bar.stock_name]
         log.info(f"🔔 [{event}] {bar.stock_name} {side} @ {bar.close} | Reason: {reason}")
+
         await self.es.log_event(
-            bar.stock_name,
-            event,
-            side,
-            bar.close,
-            bar.session_vwap,
-            div,
-            reason
+            stock_name=bar.stock_name,
+            event_type=event,
+            side=side,
+            price=bar.close,
+            vwap=bar.session_vwap,
+            scores=div,
+            tick_timestamp=bar.timestamp,  # Market time for ES timeline
+            entry_price=state.get('entry_price'),
+            stop_loss=state.get('stop_price'),
+            reason=reason
         )
