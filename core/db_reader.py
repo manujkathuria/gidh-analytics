@@ -6,17 +6,17 @@ from common.logger import log
 from datetime import datetime
 
 
-async def fetch_live_thresholds(db_pool: asyncpg.Pool) -> Dict[str, int]:
+async def fetch_live_thresholds(db_pool: asyncpg.Pool, refresh: bool = True) -> Dict[str, int]:
     """
-    Refreshes and fetches large trade thresholds from the materialized view for LIVE trading.
+    Fetches large trade thresholds from the materialized view.
     """
     thresholds = {}
     query = "SELECT stock_name, p99_volume FROM public.large_trade_thresholds_mv;"
     try:
         async with db_pool.acquire() as connection:
-            log.info("Refreshing materialized view 'large_trade_thresholds_mv' for live thresholds...")
-            await connection.execute("REFRESH MATERIALIZED VIEW public.large_trade_thresholds_mv;")
-            log.info("Materialized view refreshed successfully.")
+            if refresh:
+                log.info("Refreshing materialized view 'large_trade_thresholds_mv'...")
+                await connection.execute("REFRESH MATERIALIZED VIEW public.large_trade_thresholds_mv;")
 
             records = await connection.fetch(query)
             for record in records:
