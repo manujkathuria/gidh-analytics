@@ -132,7 +132,9 @@ async def setup_schema(db_pool):
             (timestamp, stock_name, interval, open, high, low, close, volume, bar_vwap, session_vwap, instrument_token,
              bar_delta, large_buy_volume, large_sell_volume, passive_buy_volume, passive_sell_volume, cvd_5m, cvd_10m,
              cvd_30m, rsi, mfi, obv, institutional_flow_delta, clv, clv_smoothed, cvd_5m_smoothed, rsi_smoothed,
-             mfi_smoothed, inst_flow_delta_smoothed, is_hh, is_hl, is_lh, is_ll, is_inside_bar, is_outside_bar,
+             mfi_smoothed, inst_flow_delta_smoothed, 
+             structure_delta, structure_ratio, -- ADDED THESE TO SYNC WITH SELECT
+             is_hh, is_hl, is_lh, is_ll, is_inside_bar, is_outside_bar,
              bar_structure, div_price_lvc, div_price_cvd, div_price_obv, div_price_rsi, div_price_mfi, div_price_clv,
              div_price_vwap, div_lvc_cvd, div_lvc_obv, div_lvc_rsi, div_lvc_mfi)
             AS
@@ -165,8 +167,11 @@ async def setup_schema(db_pool):
                    COALESCE((enriched_features.raw_scores ->> 'rsi_smoothed'::text)::double precision, 50.0::double precision) AS rsi_smoothed,
                    COALESCE((enriched_features.raw_scores ->> 'mfi_smoothed'::text)::double precision, 50.0::double precision) AS mfi_smoothed,
                    COALESCE((enriched_features.raw_scores ->> 'inst_flow_delta_smoothed'::text)::double precision, 0.0::double precision) AS inst_flow_delta_smoothed,
+                   
+                   -- Metrics are extracted correctly here
                    COALESCE((enriched_features.raw_scores ->> 'structure_delta'::text)::integer, 0) AS structure_delta,
                    COALESCE((enriched_features.raw_scores ->> 'structure_ratio'::text)::double precision, 0.0::double precision) AS structure_ratio,                
+                   
                    COALESCE((enriched_features.raw_scores ->> 'HH'::text)::boolean, false) AS is_hh,
                    COALESCE((enriched_features.raw_scores ->> 'HL'::text)::boolean, false) AS is_hl,
                    COALESCE((enriched_features.raw_scores ->> 'LH'::text)::boolean, false) AS is_lh,
@@ -180,10 +185,7 @@ async def setup_schema(db_pool):
                    COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_rsi'::text)::double precision, 0.0::double precision) AS div_price_rsi,
                    COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_mfi'::text)::double precision, 0.0::double precision) AS div_price_mfi,
                    COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_clv'::text)::double precision, 0.0::double precision) AS div_price_clv,
-                   
-                   -- NEW: Mapping for Price vs Session-VWAP Divergence
                    COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'price_vs_vwap'::text)::double precision, 0.0::double precision) AS div_price_vwap,
-            
                    COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_cvd'::text)::double precision, 0.0::double precision) AS div_lvc_cvd,
                    COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_obv'::text)::double precision, 0.0::double precision) AS div_lvc_obv,
                    COALESCE(((enriched_features.raw_scores -> 'divergence'::text) ->> 'lvc_vs_rsi'::text)::double precision, 0.0::double precision) AS div_lvc_rsi,
