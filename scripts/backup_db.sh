@@ -36,41 +36,51 @@ echo "⏱️  Time Range: $START_TIME UTC → $END_TIME UTC"
 # === Export live_ticks and live_order_depth per stock ===
 echo "→ Exporting live_ticks and live_order_depth per stock for $BACKUP_DATE..."
 
-mapfile -t STOCKS < <(docker exec -t $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -q -X -t -A -c "
-    SELECT DISTINCT stock_name
+# Optimized: Removed -t to prevent TTY hangs and switched to GROUP BY for speed
+STOCKS_RAW=$(docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -q -X -t -A -c "
+    SELECT stock_name
     FROM live_ticks
-    WHERE timestamp >= '$START_TIME' AND timestamp <= '$END_TIME';
-" | sed "s/^[[:space:]'\"]*//; s/[[:space:]'\"]*$//")
+    WHERE timestamp >= '$START_TIME' AND timestamp <= '$END_TIME'
+    GROUP BY stock_name;
+")
+
+# Populate array from the raw output
+mapfile -t STOCKS <<< "$STOCKS_RAW"
 
 for STOCK in "${STOCKS[@]}"; do
     [[ -z "$STOCK" ]] && continue
+    # Clean up whitespace/carriage returns that might come from Docker
+    STOCK=$(echo "$STOCK" | tr -d '\r' | xargs)
     SAFE_STOCK=$(echo "$STOCK" | tr -cd '[:alnum:]_-')
 
-    # live_ticks export
+    # live_ticks export (Removed -t)
     QUERY_TICKS="SELECT * FROM live_ticks
            WHERE stock_name = '$STOCK'
            AND timestamp >= '$START_TIME' AND timestamp <= '$END_TIME'
            ORDER BY timestamp ASC"
     echo "    → live_ticks: $STOCK"
-    docker exec -t $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -q -X \
+    docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -q -X \
         -c "\COPY ($QUERY_TICKS) TO STDOUT WITH CSV HEADER" \
         > "${TICKS_DIR}/live_ticks_${SAFE_STOCK}.csv"
 
-    # live_order_depth export
+    # live_order_depth export (Removed -t)
     QUERY_DEPTH="SELECT * FROM live_order_depth
            WHERE stock_name = '$STOCK'
            AND timestamp >= '$START_TIME' AND timestamp <= '$END_TIME'
            ORDER BY timestamp ASC"
     echo "    → live_order_depth: $STOCK"
-    docker exec -t $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -q -X \
+    docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -q -X \
         -c "\COPY ($QUERY_DEPTH) TO STDOUT WITH CSV HEADER" \
         > "${DEPTH_DIR}/live_order_depth_${SAFE_STOCK}.csv"
 done
 
-#
 # === Compress the main backup directory ===
 echo "📦 Compressing daily backup directory into tar.xz archive..."
 cd "$BACKUP_ROOT" || exit 1
-tar -cJf "backup_${BACKUP_DATE}.tar.xz" "${BACKUP_DATE}"
-rm -rf "${BACKUP_DIR}"
-echo "✅ Backup completed and compressed!"
+if [ -d "${BACKUP_DATE}" ]; then
+    tar -cJf "backup_${BACKUP_DATE}.tar.xz" "${BACKUP_DATE}"
+    rm -rf "${BACKUP_DIR}"
+    echo "✅ Backup completed and compressed!"
+else
+    echo "⚠️  No backup directory found to compress. Perhaps no stocks were found for this date?"
+fi
