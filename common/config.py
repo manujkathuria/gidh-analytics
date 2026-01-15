@@ -14,8 +14,16 @@ DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT")
-DB_NAME = os.getenv("DB_NAME")
 PIPELINE_MODE = os.getenv("PIPELINE_MODE", "realtime")
+
+# Smart DB Switching
+if PIPELINE_MODE == 'backtesting':
+    # Automatically switch to the backtest DB
+    DB_NAME = os.getenv('DB_NAME_BACKTEST', 'gidh_backtest')
+else:
+    # Use the standard live DB
+    DB_NAME = os.getenv('DB_NAME', 'gidh_analytics') #
+
 
 # --- Backtesting Configuration ---
 BACKTEST_DATA_DIRECTORY = os.getenv("BACKTEST_DATA_DIRECTORY")
@@ -31,6 +39,9 @@ TRUNCATE_TABLES_ON_BACKTEST = os.getenv("TRUNCATE_TABLES_ON_BACKTEST", "false").
 
 ES_HOST = os.getenv("ES_HOST", "http://localhost:9200")
 ES_INDEX_SIGNALS = os.getenv("ES_INDEX_SIGNALS", "gidh-signals")
+
+
+
 
 def validate_config():
     """
