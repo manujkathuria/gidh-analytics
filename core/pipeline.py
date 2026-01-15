@@ -189,27 +189,33 @@ class DataPipeline:
         log.info("Starting pipeline run...")
         await self.initialize_db()
 
-        # *** MODIFIED: Load thresholds based on pipeline mode ***
+        # --- Threshold Loading Logic ---
         large_trade_thresholds = {}
         if config.PIPELINE_MODE == 'backtesting':
-            log.info(f"Connecting to Production DB ({config.DB_NAME_LIVE}) for historical thresholds...")
-            # Temporary pool to read history from Production
-            live_db_pool = await asyncpg.create_pool(
-                user=config.DB_USER, password=config.DB_PASSWORD,
-                host=config.DB_HOST, port=config.DB_PORT,
-                database=config.DB_NAME_LIVE
+            log.info(f"Connecting to Production DB ({config.DB_NAME_PRODUCTION}) for historical thresholds...")
+            # Create a temporary pool to read history from the production DB
+            temp_live_pool = await asyncpg.create_pool(
+                user=config.DB_USER,
+                password=config.DB_PASSWORD,
+                host=config.DB_HOST,
+                port=config.DB_PORT,
+                database=config.DB_NAME_PRODUCTION
             )
-            # Calculate thresholds based on history in the Live DB
+            
+            # Fetch thresholds using the production pool
             large_trade_thresholds = await calculate_and_fetch_backtest_thresholds(
-                live_db_pool, config.BACKTEST_DATE_STR
+                temp_live_pool, config.BACKTEST_DATE_STR
             )
-            await live_db_pool.close()
+            
+            # Close the temporary connection
+            await temp_live_pool.close()
+            log.info("Thresholds loaded. Proceeding with backtest result storage in " + config.DB_NAME)
         else: 
+            # Real-time mode uses the standard pipeline pool
             large_trade_thresholds = await fetch_live_thresholds(self.db_pool)
 
         token_to_name_map = {v: k for k, v in self.instrument_map.items()}
         self.feature_enricher.load_thresholds(large_trade_thresholds, token_to_name_map)
-        # *** END MODIFIED SECTION ***
 
         processor_task = asyncio.create_task(self.processor_and_writer_coroutine())
         attach_task_monitor(processor_task, "Processor and Writer")

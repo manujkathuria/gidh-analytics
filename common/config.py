@@ -16,14 +16,16 @@ DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT")
 PIPELINE_MODE = os.getenv("PIPELINE_MODE", "realtime")
 
-# FIXED: Preserve the Production DB Name
-DB_NAME_LIVE = os.getenv("DB_NAME", "gidh_analytics")
+# 1. Store the original production DB name from .env
+DB_NAME_PRODUCTION = os.getenv("DB_NAME", "gidh_analytics")
 
-# Smart DB Switching for writing results
+# 2. Logic for result storage
 if PIPELINE_MODE == 'backtesting':
+    # This is where backtest results will go
     DB_NAME = os.getenv('DB_NAME_BACKTEST', 'gidh_backtest')
 else:
-    DB_NAME = DB_NAME_LIVE
+    # Live mode uses the production name
+    DB_NAME = DB_NAME_PRODUCTION
 
 
 # --- Backtesting Configuration ---
