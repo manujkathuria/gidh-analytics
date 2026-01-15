@@ -165,6 +165,8 @@ async def setup_schema(db_pool):
                    COALESCE((enriched_features.raw_scores ->> 'rsi_smoothed'::text)::double precision, 50.0::double precision) AS rsi_smoothed,
                    COALESCE((enriched_features.raw_scores ->> 'mfi_smoothed'::text)::double precision, 50.0::double precision) AS mfi_smoothed,
                    COALESCE((enriched_features.raw_scores ->> 'inst_flow_delta_smoothed'::text)::double precision, 0.0::double precision) AS inst_flow_delta_smoothed,
+                   COALESCE((enriched_features.raw_scores ->> 'structure_delta'::text)::integer, 0) AS structure_delta,
+                   COALESCE((enriched_features.raw_scores ->> 'structure_ratio'::text)::double precision, 0.0::double precision) AS structure_ratio,                
                    COALESCE((enriched_features.raw_scores ->> 'HH'::text)::boolean, false) AS is_hh,
                    COALESCE((enriched_features.raw_scores ->> 'HL'::text)::boolean, false) AS is_hl,
                    COALESCE((enriched_features.raw_scores ->> 'LH'::text)::boolean, false) AS is_lh,

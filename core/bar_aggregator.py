@@ -1,4 +1,4 @@
-# service/bar_aggregator.py
+# core/bar_aggregator.py
 
 import math
 from collections import deque
@@ -49,13 +49,15 @@ class BarAggregator:
         # --- State for MFI ---
         self.money_flow_history: Deque[Tuple[float, float]] = deque(maxlen=INDICATOR_PERIOD)
 
-        # --- NEW: State for All Smoothed Indicators ---
+        # --- State for All Smoothed Indicators ---
         self.clv_history: Deque[float] = deque(maxlen=SMOOTHING_PERIOD)
         self.cvd_5m_history: Deque[int] = deque(maxlen=SMOOTHING_PERIOD)
         self.rsi_history: Deque[float] = deque(maxlen=SMOOTHING_PERIOD)
         self.mfi_history: Deque[float] = deque(maxlen=SMOOTHING_PERIOD)
         self.inst_flow_delta_history: Deque[int] = deque(maxlen=SMOOTHING_PERIOD)
 
+        # --- State for Structure Ratio (Production Trend Engine) ---
+        self.structure_delta_history: Deque[int] = deque(maxlen=12)  # ~2 hours on 10m bars
 
         self.pattern_detector = PatternDetector()
 
@@ -84,7 +86,7 @@ class BarAggregator:
             bar_count=len(self.bar_history) + 1, raw_scores={}
         )
         self.bar_total_price_volume = 0.0
-        self._recalculate_bar_features()  # Calculate initial features for the new bar
+        self._recalculate_bar_features()
 
     def _update_bar_data(self, tick: EnrichedTick):
         bar = self.building_bar
@@ -100,7 +102,6 @@ class BarAggregator:
                 dv = max(0, tick.volume_traded - self.prev_cum_vol)
                 dpv = max(0.0, session_pv - self.prev_session_pv)
             else:
-                # Fallback for the very first tick
                 dv = tick.tick_volume
                 dpv = (tick.last_price or 0.0) * tick.tick_volume
 
@@ -130,10 +131,11 @@ class BarAggregator:
         self._recalculate_bar_features()
 
     def _finalize_bar(self) -> BarData:
-        self._recalculate_bar_features()  # Final calculation before storing
+        # Final calculation before bar is stripped of its 'building' status
+        self._recalculate_bar_features()
         final_bar = self.building_bar
 
-        # --- Update State After Bar is Complete ---
+        # --- Update Indicator State After Bar Completion ---
         prev_close = self.bar_history[-1].close if self.bar_history else final_bar.open
         change = final_bar.close - prev_close
         gain = change if change > 0 else 0
@@ -148,19 +150,17 @@ class BarAggregator:
             self.avg_gain = (self.avg_gain * (INDICATOR_PERIOD - 1) + gain) / INDICATOR_PERIOD
             self.avg_loss = (self.avg_loss * (INDICATOR_PERIOD - 1) + loss) / INDICATOR_PERIOD
 
-        # MFI History
         tp = (final_bar.high + final_bar.low + final_bar.close) / 3
         prev_tp = (self.bar_history[-1].high + self.bar_history[-1].low + self.bar_history[
             -1].close) / 3 if self.bar_history else tp
         sign = 1 if tp > prev_tp else (-1 if tp < prev_tp else 0)
         self.money_flow_history.append((tp * final_bar.volume, sign))
 
-        # CVD History
         self.delta_history_5m.append(final_bar.raw_scores.get('bar_delta', 0))
         self.delta_history_10m.append(final_bar.raw_scores.get('bar_delta', 0))
         self.delta_history_30m.append(final_bar.raw_scores.get('bar_delta', 0))
 
-        # --- Append final values to all history deques for smoothing ---
+        # --- Smoothing & Memory History ---
         self.clv_history.append(final_bar.raw_scores.get('clv', 0.0))
         self.cvd_5m_history.append(final_bar.raw_scores.get('cvd_5m', 0))
         self.rsi_history.append(final_bar.raw_scores.get('rsi', 50.0))
@@ -169,33 +169,8 @@ class BarAggregator:
             final_bar.raw_scores.get('large_buy_volume', 0) - final_bar.raw_scores.get('large_sell_volume', 0)
         )
 
-
-        # --- Market Structure Flags (Mutually exclusive inside/outside) ---
-        eps = 1e-9  # Using a small epsilon as tick size is not available here
-        rs = final_bar.raw_scores
-        prev = self.bar_history[-1] if self.bar_history else None
-
-        if prev:
-            rs['HH'] = final_bar.high > prev.high + eps
-            rs['HL'] = final_bar.low > prev.low + eps
-            rs['LH'] = final_bar.high < prev.high - eps
-            rs['LL'] = final_bar.low < prev.low - eps
-
-            # Inside bar: fully contained (inclusive of boundaries)
-            rs['inside'] = (final_bar.high <= prev.high + eps) and (final_bar.low >= prev.low - eps)
-            # Outside bar: expands beyond both prior extremes (exclusive)
-            rs['outside'] = (final_bar.high > prev.high + eps) and (final_bar.low < prev.low - eps)
-
-            rs['structure'] = (
-                'up' if (rs['HH'] and rs['HL']) else
-                'down' if (rs['LL'] and rs['LH']) else
-                'inside' if rs['inside'] else
-                'outside' if rs['outside'] else
-                'mixed'
-            )
-        else:
-            rs.update({'HH': False, 'HL': False, 'LH': False, 'LL': False, 'inside': False, 'outside': False,
-                       'structure': 'init'})
+        # Update Structure memory ONLY on finalization
+        self.structure_delta_history.append(final_bar.raw_scores.get('structure_delta', 0))
 
         self.bar_history.append(final_bar)
         self.building_bar = None
@@ -210,7 +185,7 @@ class BarAggregator:
         prev_obv = prev_bar.raw_scores.get('obv', 0) if prev_bar else 0
         prev_lvc_delta = prev_bar.raw_scores.get('lvc_delta', 0) if prev_bar else 0
 
-        # CVD
+        # CVD & Standard Indicators
         scores['cvd_5m'] = sum(self.delta_history_5m) + scores.get('bar_delta', 0)
         scores['cvd_10m'] = sum(self.delta_history_10m) + scores.get('bar_delta', 0)
         scores['cvd_30m'] = sum(self.delta_history_30m) + scores.get('bar_delta', 0)
@@ -220,7 +195,37 @@ class BarAggregator:
         scores['obv'] = self._calculate_obv(bar.close, prev_close, bar.volume, prev_obv)
         scores['lvc_delta'] = prev_lvc_delta + scores.get('large_buy_volume', 0) - scores.get('large_sell_volume', 0)
 
-        # --- NEW: Calculate All Smoothed Features ---
+        # --- Market Structure Engine ---
+        eps = 1e-9
+        if prev_bar:
+            scores['HH'] = bar.high > prev_bar.high + eps
+            scores['HL'] = bar.low > prev_bar.low + eps
+            scores['LH'] = bar.high < prev_bar.high - eps
+            scores['LL'] = bar.low < prev_bar.low - eps
+
+            scores['inside'] = (bar.high <= prev_bar.high + eps) and (bar.low >= prev_bar.low - eps)
+            scores['outside'] = (bar.high > prev_bar.high + eps) and (bar.low < prev_bar.low - eps)
+
+            scores['structure'] = (
+                'up' if (scores['HH'] and scores['HL']) else
+                'down' if (scores['LL'] and scores['LH']) else
+                'inside' if scores['inside'] else
+                'outside' if scores['outside'] else
+                'mixed'
+            )
+        else:
+            scores.update({'HH': False, 'HL': False, 'LH': False, 'LL': False,
+                           'inside': False, 'outside': False, 'structure': 'init'})
+
+        # Per-bar structure pressure (Step 1)
+        scores['structure_delta'] = (
+                (1 if scores.get('HH') else 0) +
+                (1 if scores.get('HL') else 0) -
+                (1 if scores.get('LH') else 0) -
+                (1 if scores.get('LL') else 0)
+        )
+
+        # --- Smoothed Metrics ---
         bar_range = bar.high - bar.low
         current_clv = ((bar.close - bar.low) - (bar.high - bar.close)) / bar_range if bar_range > 0 else 0.0
         scores['clv'] = current_clv
@@ -229,7 +234,8 @@ class BarAggregator:
 
         current_cvd_5m = scores.get('cvd_5m', 0)
         cvd_5m_values_for_avg = list(self.cvd_5m_history) + [current_cvd_5m]
-        scores['cvd_5m_smoothed'] = sum(cvd_5m_values_for_avg) / len(cvd_5m_values_for_avg) if cvd_5m_values_for_avg else 0.0
+        scores['cvd_5m_smoothed'] = sum(cvd_5m_values_for_avg) / len(
+            cvd_5m_values_for_avg) if cvd_5m_values_for_avg else 0.0
 
         current_rsi = scores.get('rsi', 50.0)
         rsi_values_for_avg = list(self.rsi_history) + [current_rsi]
@@ -241,8 +247,17 @@ class BarAggregator:
 
         current_inst_flow_delta = scores.get('large_buy_volume', 0) - scores.get('large_sell_volume', 0)
         inst_flow_values_for_avg = list(self.inst_flow_delta_history) + [current_inst_flow_delta]
-        scores['inst_flow_delta_smoothed'] = sum(inst_flow_values_for_avg) / len(inst_flow_values_for_avg) if inst_flow_values_for_avg else 0.0
+        scores['inst_flow_delta_smoothed'] = sum(inst_flow_values_for_avg) / len(
+            inst_flow_values_for_avg) if inst_flow_values_for_avg else 0.0
 
+        # --- FIX: Defensive Structure Ratio Logic ---
+        deltas = list(self.structure_delta_history)
+        if self.building_bar:
+            # Only add the current bar if it hasn't been appended to history yet
+            deltas = deltas + [scores.get('structure_delta', 0)]
+
+        N = len(deltas)
+        scores['structure_ratio'] = sum(deltas) / (2 * N) if N > 0 else 0.0
 
         scores['divergence'] = self.pattern_detector.calculate_scores(bar, self.bar_history)
 
@@ -268,19 +283,15 @@ class BarAggregator:
 
     def _calculate_mfi(self, current_bar: BarData, prev_bar: Optional[BarData]) -> float:
         if not prev_bar: return 50.0
-
         tp = (current_bar.high + current_bar.low + current_bar.close) / 3
         prev_tp = (prev_bar.high + prev_bar.low + prev_bar.close) / 3
-
         sign = 1 if tp > prev_tp else (-1 if tp < prev_tp else 0)
         temp_mf_history = list(self.money_flow_history)
         temp_mf_history.append((tp * current_bar.volume, sign))
         if len(temp_mf_history) > INDICATOR_PERIOD:
             temp_mf_history.pop(0)
-
         pos_flow = sum(flow for flow, s in temp_mf_history if s == 1)
         neg_flow = sum(flow for flow, s in temp_mf_history if s == -1)
-
         if neg_flow == 0:
             return 100.0 if pos_flow > 0 else 50.0
         mf_ratio = pos_flow / neg_flow
