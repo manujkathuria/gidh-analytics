@@ -25,35 +25,36 @@ async def setup_schema(db_pool):
         await connection.execute("SELECT create_hypertable('live_ticks', 'timestamp', if_not_exists => TRUE);")
 
         await connection.execute("""
-            CREATE TABLE IF NOT EXISTS public.live_signals (
-                id SERIAL PRIMARY KEY,
-                timestamp TIMESTAMPTZ NOT NULL,       -- Entry Time
-                stock_name TEXT NOT NULL,
-                interval TEXT NOT NULL,
-                side TEXT NOT NULL,                  -- 'SHORT'
-                entry_price DOUBLE PRECISION,
-                quantity INTEGER,                    -- Number of shares based on cash risk
-                stop_loss DOUBLE PRECISION,
-                tp1 DOUBLE PRECISION,
-                tp2 DOUBLE PRECISION,
-                div_obv DOUBLE PRECISION,
-                div_clv DOUBLE PRECISION,
-                structure TEXT,
-                
-                -- Exit Columns
-                exit_timestamp TIMESTAMPTZ,
-                exit_price DOUBLE PRECISION,
-                exit_reason TEXT,                    -- 'SIGNAL_INVALIDATED', 'TP2_FULL', etc.
-                pnl_pct DOUBLE PRECISION,            -- Total percentage return
-                realized_pnl_cash DOUBLE PRECISION,  -- Total revenue/loss in cash
-                status TEXT DEFAULT 'OPEN',          -- 'OPEN' or 'CLOSED'
-                is_alerted BOOLEAN DEFAULT FALSE
-            );
-        """)
+                                 CREATE TABLE IF NOT EXISTS public.live_signals
+                                 (
+                                     id
+                                     SERIAL
+                                     PRIMARY
+                                     KEY,
+                                     event_time
+                                     TIMESTAMPTZ
+                                     NOT
+                                     NULL, -- Market timestamp of the event
+                                     processed_at
+                                     TIMESTAMPTZ
+                                     DEFAULT
+                                     now(),-- When the system logged it
+                                     stock_name TEXT NOT NULL,
+                                     event_type TEXT NOT NULL, -- 'ENTRY', 'EXIT', 'TRAIL', 'REVERSAL_WARN'
+                                     side TEXT NOT NULL, -- 'LONG' or 'SHORT'
+                                     price DOUBLE PRECISION, -- Execution/Signal price
+                                     vwap DOUBLE PRECISION, -- Session VWAP at time of event
+                                     stop_loss DOUBLE PRECISION, -- Current active stop loss
+                                     indicators JSONB, -- Store obv_score, clv_score, structure_ratio
+                                     reason TEXT, -- e.g., 'REGIME_ALIGN_PULLBACK'
+                                     pnl_pct DOUBLE PRECISION, -- Only populated on EXIT events
+                                     interval TEXT -- The timeframe that triggered it
+                                     );
+                                 """)
 
         await connection.execute("""
-            CREATE INDEX IF NOT EXISTS live_signals_stock_time_idx ON live_signals (stock_name, timestamp);
-        """)
+                                 CREATE INDEX IF NOT EXISTS idx_signals_stock_event ON live_signals (stock_name, event_time);
+                                 """)
 
         await connection.execute("""
             CREATE TABLE IF NOT EXISTS public.live_order_depth (

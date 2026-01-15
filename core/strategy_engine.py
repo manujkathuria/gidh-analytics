@@ -1,7 +1,6 @@
 # core/strategy_engine.py
 
 from common.logger import log
-from core.es_logger import ESLogger
 from common import strategy_config as s_cfg
 from core import db_writer  # Required for signal accounting
 
@@ -13,7 +12,6 @@ class StrategyEngine:
         Sensors: PATH (Structure), COST (Institutional Value), PRESSURE (Tape Timing).
         """
         self.db_pool = db_pool
-        self.es = ESLogger()
 
         # State tracking per stock: {stock_name: state_dict}
         self.states = {}
@@ -102,6 +100,7 @@ class StrategyEngine:
             state['stop_price'] = price * (1 + s_cfg.STOP_LOSS_PCT)
 
         if side:
+            state['pending_side'] = side
             state['position'] = side
             state['entry_price'] = price
             state['entry_time'] = bar.timestamp
@@ -118,8 +117,7 @@ class StrategyEngine:
                 'div_clv': div.get('price_vs_clv', 0.0),
                 'status': 'OPEN'
             }
-            await db_writer.insert_signal(self.db_pool, signal_data)
-            await self._fire_log(bar, "ENTRY", side, div, "REGIME_ALIGN_PULLBACK")
+            await self._fire_signal(bar, "ENTRY", "REGIME_ALIGN_PULLBACK")
 
     async def _check_3m_exits(self, bar, state):
         """
@@ -205,24 +203,35 @@ class StrategyEngine:
             'status': 'CLOSED'
         }
 
-        try:
-            await db_writer.update_signal_exit(self.db_pool, exit_data)
-        except Exception as e:
-            log.error(f"Failed to update signal accounting for {bar.stock_name}: {e}")
-
-        # Final Log
-        await self._fire_log(bar, "EXIT", state['position'], bar.raw_scores.get('divergence', {}), reason)
+        await self._fire_signal(bar, "EXIT", reason, pnl_pct=pnl_pct * 100)
 
         # Reset position state
         state['position'] = 'NONE'
         state['entry_time'] = None
 
-    async def _fire_log(self, bar, event, side, div, reason):
-        """Centralized logging for console and Elasticsearch context."""
+    async def _fire_signal(self, bar, event_type, reason, pnl_pct=None):
+        """Unified logging for all signal transitions to Postgres."""
         state = self.states[bar.stock_name]
-        log.info(f"🔔 [{event}] {bar.stock_name} {side} @ {bar.close} | Reason: {reason}")
-        await self.es.log_event(
-            stock_name=bar.stock_name, event_type=event, side=side, price=bar.close,
-            vwap=bar.session_vwap, scores=div, tick_timestamp=bar.timestamp,
-            entry_price=state.get('entry_price'), stop_loss=state.get('stop_price'), reason=reason
-        )
+        div = bar.raw_scores.get('divergence', {})
+
+        event_data = {
+            'event_time': bar.timestamp,
+            'stock_name': bar.stock_name,
+            'event_type': event_type,
+            'side': state['position'] if event_type != 'ENTRY' else state['pending_side'],
+            'price': bar.close,
+            'vwap': bar.session_vwap,
+            'stop_loss': state['stop_price'],
+            'indicators': {
+                'obv_score': div.get('price_vs_obv', 0),
+                'clv_score': div.get('price_vs_clv', 0),
+                'structure_ratio': bar.raw_scores.get('structure_ratio', 0)
+            },
+            'reason': reason,
+            'pnl_pct': pnl_pct,
+            'interval': bar.interval
+        }
+
+        log.info(f"🔔 [{event_type}] {bar.stock_name} @ {bar.close} | {reason}")
+        await db_writer.log_signal_event(self.db_pool, event_data)
+
