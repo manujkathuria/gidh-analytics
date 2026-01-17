@@ -36,36 +36,45 @@ async def setup_schema(db_pool):
         await connection.execute("SELECT create_hypertable('live_ticks', 'timestamp', if_not_exists => TRUE);")
 
         await connection.execute("""
-             CREATE TABLE IF NOT EXISTS public.live_signals (
-                id           SERIAL PRIMARY KEY,
-                event_time   TIMESTAMPTZ NOT NULL,   -- Market time of the bar
-                processed_at TIMESTAMPTZ DEFAULT now(),
-                stock_name   TEXT NOT NULL,
-                interval     TEXT NOT NULL,          -- '1m', '5m', '15m'
-                authority    TEXT NOT NULL,          -- 'micro', 'trade', 'structural'
-                
-                event_type   TEXT NOT NULL,          -- 'LONG_ENTRY', 'LONG_EXIT', etc.
-                side         TEXT NOT NULL,          -- 'LONG' or 'SHORT'
-                
-                price        DOUBLE PRECISION,       -- Price at time of alert
-                vwap         DOUBLE PRECISION,       -- Session VWAP for context
-                
-                -- Sensor Snapshot (For easy SQL filtering)
-                cost_regime  SMALLINT,               -- +1, 0, -1
-                path_regime  SMALLINT,               -- +1, 0, -1
-                accept_regime SMALLINT,              -- +1, 0, -1
-                
-                reason       TEXT,                   -- e.g., 'COST+PATH+ACCEPTANCE'
-                indicators   JSONB                   -- Full raw_scores for deep dive
-             );
+                                 CREATE TABLE IF NOT EXISTS public.live_signals
+                                 (
+                                     id
+                                     SERIAL
+                                     PRIMARY
+                                     KEY,
+                                     event_time
+                                     TIMESTAMPTZ
+                                     NOT
+                                     NULL,
+                                     processed_at
+                                     TIMESTAMPTZ
+                                     DEFAULT
+                                     now
+                                 (
+                                 ),
+                                     stock_name TEXT NOT NULL,
+                                     interval TEXT NOT NULL, -- '1m', '5m', etc.
+                                     authority TEXT NOT NULL, -- 'micro', 'trade', 'structural'
+                                     event_type TEXT NOT NULL, -- 'LONG_ENTRY', etc.
+                                     side TEXT NOT NULL,
+                                     price DOUBLE PRECISION,
+                                     vwap DOUBLE PRECISION,
+                                     cost_regime SMALLINT, -- +1, 0, -1
+                                     path_regime SMALLINT, -- +1, 0, -1
+                                     accept_regime SMALLINT, -- +1, 0, -1
+                                     indicators JSONB,
+                                     reason TEXT
+                                     );
                                  """)
 
         await connection.execute("""
-                                 CREATE INDEX IF NOT EXISTS idx_signals_authority ON live_signals (authority);
+                                 CREATE INDEX IF NOT EXISTS idx_signals_stock_event
+                                     ON live_signals (stock_name, event_time);
                                  """)
 
         await connection.execute("""
-                                 CREATE INDEX IF NOT EXISTS idx_signals_stock_time ON live_signals (stock_name, event_time);
+                                 CREATE INDEX IF NOT EXISTS idx_signals_authority
+                                     ON live_signals (authority);
                                  """)
 
         await connection.execute("""
@@ -243,14 +252,14 @@ async def setup_schema(db_pool):
 
 async def truncate_tables_if_needed(db_pool):
     if config.PIPELINE_MODE == 'backtesting' and config.TRUNCATE_TABLES_ON_BACKTEST:
-        log.warning("Performing targeted cleanup for backtesta run...")
+        log.warning("Performing targeted cleanup for backtest run...")
         try:
             backtest_date = datetime.strptime(config.BACKTEST_DATE_STR, '%Y-%m-%d').date()
             async with db_pool.acquire() as connection:
                 await connection.execute('DELETE FROM public.live_ticks WHERE "timestamp"::date = $1;', backtest_date)
                 await connection.execute('DELETE FROM public.enriched_features WHERE "timestamp"::date = $1;', backtest_date)
                 await connection.execute("TRUNCATE TABLE public.live_order_depth RESTART IDENTITY;")
-            log.info(f"Successfully prepared database for backtesta on {backtest_date}.")
+            log.info(f"Successfully prepared database for backtest on {backtest_date}.")
         except Exception as e:
             log.error(f"Failed to clean up tables: {e}", exc_info=True)
             raise

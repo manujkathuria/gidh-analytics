@@ -9,7 +9,7 @@ from common.logger import log
 import common.config as config
 from common.parameters import INSTRUMENT_MAP
 from core.file_reader import FileReader
-from core.alert_engine import StrategyEngine
+from core.alert_engine import AlertEngine
 from core.websocket_client import WebSocketClient
 import core.db_writer as db_writer
 from core.feature_enricher import FeatureEnricher
@@ -216,7 +216,7 @@ class DataPipeline:
         attach_task_monitor(processor_task, "Processor and Writer")
 
         data_source_task = asyncio.create_task(self.start_data_source())
-        self.strategy_engine = StrategyEngine(self.db_pool)
+        self.strategy_engine = AlertEngine(self.db_pool)
         try:
             if self.mode == 'backtesting':
                 await data_source_task
