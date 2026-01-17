@@ -100,6 +100,7 @@ class AlertEngine:
             'price': bar.close,
             'vwap': bar.session_vwap,
             'stop_loss': None,
+            'authority': authority,  # <--- ADD THIS LINE
             'indicators': {
                 **bar.raw_scores,
                 'authority': authority
