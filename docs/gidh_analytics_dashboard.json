@@ -43,12 +43,6 @@
     },
     {
       "type": "panel",
-      "id": "table",
-      "name": "Table",
-      "version": ""
-    },
-    {
-      "type": "panel",
       "id": "timeseries",
       "name": "Time series",
       "version": ""
@@ -85,7 +79,7 @@
       "title": "Today 09:15 to Now",
       "tooltip": "",
       "type": "link",
-      "url": "/d/cevflskwq1m2oc/f09f938a-f09f93a1-gidh-analytics?kiosk=&orgId=1&from=now/d%2B9h%2B0m&to=now&timezone=browser&var-interval=5m&var-interval_agg=1h&refresh=10sz"
+      "url": "/d/cevflskwq1m2od/f09f938a-f09f93a1-gidh-analytics-v2?kiosk=&orgId=1&from=now/d%2B9h%2B0m&to=now&timezone=browser&var-interval=10m&var-interval_agg=1h&refresh=10sz"
     },
     {
       "asDropdown": false,
@@ -97,7 +91,7 @@
       "title": "Last 2 Hours",
       "tooltip": "",
       "type": "link",
-      "url": "/d/cevflskwq1m2oc/f09f938a-f09f93a1-gidh-analytics?kiosk=&orgId=1&from=now-2h&to=now&timezone=browser&var-interval=5m&var-interval_agg=30m&refresh=10s"
+      "url": "/d/cevflskwq1m2od/f09f938a-f09f93a1-gidh-analytics-v2?kiosk=&orgId=1&from=now-2h&to=now&timezone=browser&var-interval=5m&var-interval_agg=30m&refresh=10s"
     },
     {
       "asDropdown": false,
@@ -109,7 +103,7 @@
       "title": "Last 1 Hour",
       "tooltip": "",
       "type": "link",
-      "url": "/d/cevflskwq1m2oc/f09f938a-f09f93a1-gidh-analytics?kiosk=&orgId=1&from=now-1h&to=now&timezone=browser&var-interval=3m&var-interval_agg=30m&refresh=10s"
+      "url": "/d/cevflskwq1m2od/f09f938a-f09f93a1-gidh-analytics-v2?kiosk=&orgId=1&from=now-1h&to=now&timezone=browser&var-interval=3m&var-interval_agg=30m&refresh=10s"
     },
     {
       "asDropdown": false,
@@ -121,7 +115,7 @@
       "title": "Last 30 Min",
       "tooltip": "",
       "type": "link",
-      "url": "/d/cevflskwq1m2oc/f09f938a-f09f93a1-gidh-analytics?kiosk=&orgId=1&from=now-30m&to=now&timezone=browser&var-interval=1m&var-interval_agg=15m&refresh=10s"
+      "url": "/d/cevflskwq1m2od/f09f938a-f09f93a1-gidh-analytics-v2?kiosk=&orgId=1&from=now-30m&to=now&timezone=browser&var-interval=1m&var-interval_agg=15m&refresh=10s"
     }
   ],
   "panels": [
@@ -157,7 +151,7 @@
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "purple",
+                  "fixedColor": "semi-dark-yellow",
                   "mode": "fixed"
                 }
               }
@@ -195,39 +189,16 @@
           },
           {
             "matcher": {
-              "id": "byFrameRefID",
-              "options": "B"
+              "id": "byName",
+              "options": "VWAP"
             },
             "properties": [
               {
-                "id": "mappings",
-                "value": [
-                  {
-                    "options": {
-                      "ACCUMULATING": {
-                        "color": "yellow",
-                        "index": 2
-                      },
-                      "FALLING": {
-                        "color": "red",
-                        "index": 0
-                      },
-                      "NO_PHASE": {
-                        "color": "text",
-                        "index": 4
-                      },
-                      "RISING": {
-                        "color": "green",
-                        "index": 1
-                      },
-                      "SELLING": {
-                        "color": "orange",
-                        "index": 3
-                      }
-                    },
-                    "type": "value"
-                  }
-                ]
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple",
+                  "mode": "fixed"
+                }
               }
             ]
           }
@@ -264,44 +235,15 @@
       "pluginVersion": "11.5.2",
       "targets": [
         {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
+          },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  -- Get the last 'last_price' value, ordered by time, for the current price\n  last(last_price, timestamp) AS \"Current\",\n  \n  -- Get the first 'ohlc_open' value, ordered by time, for the opening price\n  first(ohlc_open, timestamp) AS \"Open\",\n  last(average_traded_price, timestamp) AS \"VWAP\",\n\n  -- Get the maximum 'ohlc_high' for the period's high\n  MAX(ohlc_high) AS \"High\",\n\n  -- Get the minimum 'ohlc_low' for the period's low\n  MIN(ohlc_low) AS \"Low\"\n\nFROM\n    public.live_ticks\nWHERE\n  $__timeFilter(timestamp)\n  AND stock_name = '${stock_name}';",
+          "rawSql": "WITH base AS (\n  SELECT\n    timestamp,\n    last_price,\n    ohlc_open,\n    ohlc_high,\n    ohlc_low,\n\n    -- Campaign-anchored VWAP proxy (row-level)\n    FIRST_VALUE(average_traded_price)\n      OVER (\n        PARTITION BY\n          CASE\n            WHEN '${interval}' IN ('1m', '3m') THEN time_bucket('15 minutes', timestamp)\n            WHEN '${interval}' IN ('5m')       THEN time_bucket('1 hour', timestamp)\n            WHEN '${interval}' IN ('10m')      THEN time_bucket('1 hour', timestamp)\n            WHEN '${interval}' IN ('15m')      THEN date_trunc('day', timestamp)\n            ELSE date_trunc('day', timestamp)\n          END\n        ORDER BY timestamp\n      ) AS anchored_vwap\n\n  FROM public.live_ticks\n  WHERE\n    $__timeFilter(timestamp)\n    AND stock_name = '${stock_name}'\n)\n\nSELECT\n  -- Current price\n  last(last_price, timestamp) AS \"Current\",\n\n  -- VWAP (anchored campaign VWAP)\n  last(anchored_vwap, timestamp) AS \"VWAP\",\n\n  -- Open / High / Low\n  first(ohlc_open, timestamp) AS \"Open\",\n  MAX(ohlc_high) AS \"High\",\n  MIN(ohlc_low) AS \"Low\"\n\nFROM base;\n",
           "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          },
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
-          }
-        },
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "hide": false,
-          "rawQuery": true,
-          "rawSql": "SELECT DISTINCT ON (symbol)\r\n  phase AS \"Phase\",\r\n  trend AS \"Trend\"\r\nFROM stock_state_history\r\nWHERE symbol = '${stock_name}'\r\nORDER BY symbol, recorded_at DESC, id DESC;\r\n",
-          "refId": "B",
           "sql": {
             "columns": [
               {
@@ -340,6 +282,7 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
+            "axisWidth": 80,
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "line",
@@ -397,12 +340,54 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "vwap_upper"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "vwap_lower"
+            },
+            "properties": [
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-red",
+                  "mode": "fixed"
+                }
+              }
+            ]
           }
         ]
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 12,
+        "w": 13,
         "x": 0,
         "y": 1
       },
@@ -419,7 +404,7 @@
           "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": false
+          "showLegend": true
         },
         "mode": "candles",
         "tooltip": {
@@ -438,7 +423,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  timestamp AS time,\n  open,\n  high,\n  low,\n  close,\n  session_vwap as vwap\nFROM grafana_features_view \nWHERE\n  $__timeFilter(timestamp)\n  AND stock_name = '${stock_name}'\n  AND interval = '${interval}'\nORDER BY time ASC\n",
+          "rawSql": "SELECT\n  timestamp AS time,\n  open,\n  high,\n  low,\n  close,\n\n  FIRST_VALUE(session_vwap)\n    OVER (\n      PARTITION BY\n        CASE\n          WHEN '${interval}' IN ('1m', '3m') THEN time_bucket('15 minutes', timestamp)\n          WHEN '${interval}' IN ('5m')       THEN time_bucket('1 hour', timestamp)\n          WHEN '${interval}' IN ('10m')      THEN time_bucket('1 hour', timestamp)\n          WHEN '${interval}' IN ('15m')      THEN date_trunc('day', timestamp)\n          ELSE date_trunc('day', timestamp)\n        END\n      ORDER BY timestamp\n    ) AS vwap\n\nFROM grafana_features_view\nWHERE\n  $__timeFilter(timestamp)\n  AND stock_name = '${stock_name}'\n  AND interval = '${interval}'\nORDER BY time ASC;\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -505,7 +490,6 @@
               "mode": "off"
             }
           },
-          "decimals": 2,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -519,8 +503,7 @@
                 "value": 80
               }
             ]
-          },
-          "unit": "none"
+          }
         },
         "overrides": [
           {
@@ -541,28 +524,13 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "bar_vwap"
+              "options": "obv"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "light-purple",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "mfi"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "dark-yellow",
+                  "fixedColor": "text",
                   "mode": "fixed"
                 }
               }
@@ -586,13 +554,73 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "obv"
+              "options": "mfi"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#5b131b",
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cvd_30m"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "semi-dark-blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cvd_5m"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bar_vwap"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "light-purple",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "clv_smoothed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
                   "mode": "fixed"
                 }
               }
@@ -605,7 +633,7 @@
               "options": {
                 "mode": "exclude",
                 "names": [
-                  "obv"
+                  "vwap"
                 ],
                 "prefix": "All except:",
                 "readOnly": true
@@ -626,11 +654,11 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 11,
+        "x": 13,
         "y": 1
       },
-      "id": 13,
+      "id": 17,
       "options": {
         "legend": {
           "calcs": [],
@@ -647,14 +675,10 @@
       "pluginVersion": "11.5.2",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
-          },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  timestamp AS time,\n  session_vwap as vwap,\n  bar_vwap,\n  cvd_5m,\n  cvd_30m,\n  mfi,\n  rsi,\n  obv\nFROM grafana_features_view \nWHERE\n  $__timeFilter(timestamp)\n  AND stock_name = '${stock_name}'\n  AND interval = '${interval}'\nORDER BY time ASC\n",
+          "rawSql": "SELECT\r\n  timestamp AS time,\r\n  FIRST_VALUE(session_vwap)\r\n    OVER (\r\n      PARTITION BY\r\n        CASE\r\n          WHEN '${interval}' IN ('1m', '3m') THEN time_bucket('15 minutes', timestamp)\r\n          WHEN '${interval}' IN ('5m')       THEN time_bucket('1 hour', timestamp)\r\n          WHEN '${interval}' IN ('10m')      THEN time_bucket('1 hour', timestamp)\r\n          WHEN '${interval}' IN ('15m')      THEN date_trunc('day', timestamp)\r\n          ELSE date_trunc('day', timestamp)\r\n        END\r\n      ORDER BY timestamp\r\n    ) AS vwap,\r\n  rsi\r\nFROM grafana_features_view \r\nWHERE\r\n  $__timeFilter(timestamp)\r\n  AND stock_name = '${stock_name}'\r\n  AND interval = '${interval}'\r\nORDER BY time ASC\r\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -672,6 +696,10 @@
               }
             ],
             "limit": 50
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
           }
         }
       ],
@@ -693,11 +721,10 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
-            "axisWidth": 50,
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "bars",
-            "fillOpacity": 40,
+            "fillOpacity": 38,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -751,16 +778,46 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "norm_large_buy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "transparent",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "norm_large_sell"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "transparent",
+                  "mode": "fixed"
+                }
+              }
+            ]
           }
         ]
       },
       "gridPos": {
         "h": 7,
-        "w": 12,
-        "x": 0,
+        "w": 11,
+        "x": 13,
         "y": 9
       },
-      "id": 2,
+      "id": 13,
       "options": {
         "legend": {
           "calcs": [],
@@ -777,10 +834,6 @@
       "pluginVersion": "11.5.2",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
-          },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
@@ -802,10 +855,43 @@
               }
             ],
             "limit": 50
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
+          }
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "hide": false,
+          "rawQuery": true,
+          "rawSql": "WITH baseline AS (\n  SELECT\n    stock_name,\n    percentile_cont(0.95)\n      WITHIN GROUP (ORDER BY large_buy_volume)  AS buy_p95,\n    percentile_cont(0.95)\n      WITHIN GROUP (ORDER BY large_sell_volume) AS sell_p95\n  FROM grafana_features_view\n  WHERE\n    timestamp >= now() - interval '30 days'\n  GROUP BY stock_name\n)\nSELECT\n  g.timestamp AS time,\n\n  -- Normalized BUY\n  g.large_buy_volume\n    / NULLIF(b.buy_p95, 0)  AS norm_large_buy,\n\n  -- Normalized SELL\n  g.large_sell_volume\n    / NULLIF(b.sell_p95, 0) AS norm_large_sell\n\nFROM grafana_features_view g\nJOIN baseline b\n  ON g.stock_name = b.stock_name\nWHERE\n  $__timeFilter(g.timestamp)\n  AND g.stock_name = '${stock_name}'\n  AND g.interval = '${interval}'\nORDER BY time;\n",
+          "refId": "B",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
           }
         }
       ],
-      "title": "Institutional Volume",
+      "title": "Volume",
       "type": "timeseries"
     },
     {
@@ -829,25 +915,25 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 12,
-        "y": 9
+        "h": 3,
+        "w": 13,
+        "x": 0,
+        "y": 13
       },
-      "id": 7,
+      "id": 18,
       "options": {
         "calculate": false,
         "cellGap": 1,
         "color": {
           "exponent": 0.5,
           "fill": "dark-orange",
-          "max": 1,
-          "min": -1,
+          "max": 0.4,
+          "min": -0.4,
           "mode": "scheme",
           "reverse": true,
           "scale": "exponential",
           "scheme": "RdYlGn",
-          "steps": 5
+          "steps": 32
         },
         "exemplars": {
           "color": "rgba(255,0,255,0.7)"
@@ -869,21 +955,17 @@
         },
         "yAxis": {
           "axisPlacement": "left",
-          "axisWidth": 44,
-          "reverse": false
+          "axisWidth": 80,
+          "reverse": true
         }
       },
       "pluginVersion": "11.5.2",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
-          },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT timestamp AS \"time\", div_price_obv as obv, div_price_mfi as mfi, div_price_cvd as cvd FROM public.grafana_features_view WHERE $__timeFilter(timestamp) AND stock_name = '${stock_name}' AND interval = '${interval}' ORDER BY \"time\" ASC;",
+          "rawSql": "SELECT \r\n  timestamp AS \"time\", \r\n  -- PATH: price direction\r\n  structure_ratio AS \"PATH\"\r\n\r\nFROM \r\n  public.grafana_features_view \r\n\r\nWHERE \r\n  $__timeFilter(timestamp) \r\n  AND stock_name = '${stock_name}' \r\n  AND interval = '${interval}' \r\n\r\nORDER BY \"time\" ASC;\r\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -901,10 +983,14 @@
               }
             ],
             "limit": 50
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
           }
         }
       ],
-      "title": "Price Dvergence",
+      "transparent": true,
       "type": "heatmap"
     },
     {
@@ -914,136 +1000,63 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
           "custom": {
-            "align": "center",
-            "cellOptions": {
-              "type": "color-text",
-              "wrapText": false
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
             },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
+            "scaleDistribution": {
+              "type": "linear"
+            }
           }
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Time"
-            },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "blue",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Price"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "blue",
-                  "mode": "fixed"
-                }
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
-              },
-              {
-                "id": "custom.width",
-                "value": 112
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Net Iceberg"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 129
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Net Inst"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 130
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Cumulative Inst"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 140
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 12,
-        "y": 15
+        "h": 3,
+        "w": 13,
+        "x": 0,
+        "y": 16
       },
-      "id": 10,
+      "id": 20,
       "options": {
-        "cellHeight": "md",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
+        "calculate": false,
+        "cellGap": 1,
+        "color": {
+          "exponent": 0.5,
+          "fill": "dark-orange",
+          "max": 0.6,
+          "min": -0.6,
+          "mode": "scheme",
+          "reverse": true,
+          "scale": "exponential",
+          "scheme": "RdYlGn",
+          "steps": 32
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "ge": 2,
+          "le": -2
+        },
+        "legend": {
           "show": false
         },
-        "showHeader": true,
-        "sortBy": []
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "tooltip": {
+          "mode": "single",
+          "showColorScale": false,
+          "yHistogram": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "axisWidth": 80,
+          "reverse": true
+        }
       },
       "pluginVersion": "11.5.2",
       "targets": [
@@ -1051,7 +1064,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH data_from_view AS (\n  SELECT *\n  FROM public.market_data_aggregated_view\n  WHERE\n    stock_name = '${stock_name}' AND\n    interval_agg = '${interval_agg}' AND\n    $__timeFilter(\"timestamp\")\n),\nlatest_datapoint_time AS (\n  -- Find the timestamp of the very last 1-minute bar from the source data\n  SELECT MAX(\"timestamp\") as last_time\n  FROM public.grafana_features_view\n  WHERE\n    stock_name = '${stock_name}' AND\n    \"interval\" = '1m' AND\n    $__timeFilter(\"timestamp\")\n)\nSELECT\n  CASE\n    -- For the very last row (the in-progress bucket), show the timestamp of the last data point.\n    WHEN \"timestamp\" = (SELECT MAX(\"timestamp\") FROM data_from_view)\n    THEN (SELECT last_time FROM latest_datapoint_time)\n    -- For all other historical rows, calculate and show the bucket's end time.\n    ELSE (\"timestamp\" + interval_agg::interval)\n  END AS \"Time\",\n  \"Price\",\n  \"Net Inst\",\n  \"Net Iceberg\",\n  \"Inst_Flow_60m\", -- Using the new shorter name\n  \"Iceberg_Flow_60m\" -- Using the new shorter name\nFROM\n  data_from_view\nORDER BY\n  \"Time\";",
+          "rawSql": "SELECT \r\n  timestamp AS \"time\", \r\n  -- COST: institutional positioning (VWAP + OBV)\r\n  (div_price_vwap + div_price_obv) / 2.0 AS \"COST\"\r\n\r\nFROM \r\n  public.grafana_features_view \r\n\r\nWHERE \r\n  $__timeFilter(timestamp) \r\n  AND stock_name = '${stock_name}' \r\n  AND interval = '${interval}' \r\n\r\nORDER BY \"time\" ASC;\r\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1076,22 +1089,8 @@
           }
         }
       ],
-      "transformations": [
-        {
-          "id": "convertFieldType",
-          "options": {
-            "conversions": [
-              {
-                "dateFormat": "HH:mm",
-                "destinationType": "string",
-                "targetField": "Time"
-              }
-            ],
-            "fields": {}
-          }
-        }
-      ],
-      "type": "table"
+      "transparent": true,
+      "type": "heatmap"
     },
     {
       "datasource": {
@@ -1109,11 +1108,10 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
-            "axisWidth": 47,
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "bars",
-            "fillOpacity": 40,
+            "fillOpacity": 35,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -1171,12 +1169,12 @@
         ]
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
+        "h": 6,
+        "w": 11,
+        "x": 13,
         "y": 16
       },
-      "id": 3,
+      "id": 14,
       "options": {
         "legend": {
           "calcs": [],
@@ -1193,15 +1191,44 @@
       "pluginVersion": "11.5.2",
       "targets": [
         {
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  timestamp AS time,\r\n  passive_buy_volume,\r\n  passive_sell_volume\r\nFROM grafana_features_view \r\nWHERE\r\n  $__timeFilter(timestamp)\r\n  AND stock_name = '${stock_name}'\r\n  AND interval = '${interval}'\r\nORDER BY time ASC\r\n",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
+          }
+        },
+        {
           "datasource": {
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_GIDH_ANALYTICS}"
           },
           "editorMode": "code",
           "format": "table",
+          "hide": false,
           "rawQuery": true,
-          "rawSql": "SELECT\n  timestamp AS time,\n  passive_buy_volume,\n  passive_sell_volume\nFROM grafana_features_view \nWHERE\n  $__timeFilter(timestamp)\n  AND stock_name = '${stock_name}'\n  AND interval = '${interval}'\nORDER BY time ASC\n",
-          "refId": "A",
+          "rawSql": "WITH baseline AS (\r\n  SELECT\r\n    stock_name,\r\n    percentile_cont(0.90)\r\n      WITHIN GROUP (ORDER BY passive_buy_volume)  AS buy_p90,\r\n    percentile_cont(0.90)\r\n      WITHIN GROUP (ORDER BY passive_sell_volume) AS sell_p90\r\n  FROM grafana_features_view\r\n  WHERE\r\n    timestamp >= now() - interval '30 days'\r\n  GROUP BY stock_name\r\n)\r\nSELECT\r\n  g.timestamp AS time,\r\n\r\n  -- Normalized iceberg buy (defense)\r\n  g.passive_buy_volume\r\n    / NULLIF(b.buy_p90, 0)  AS norm_iceberg_buy,\r\n\r\n  -- Normalized iceberg sell (absorption on offers)\r\n  g.passive_sell_volume\r\n    / NULLIF(b.sell_p90, 0) AS norm_iceberg_sell\r\n\r\nFROM grafana_features_view g\r\nJOIN baseline b\r\n  ON g.stock_name = b.stock_name\r\nWHERE\r\n  $__timeFilter(g.timestamp)\r\n  AND g.stock_name = '${stock_name}'\r\n  AND g.interval = '${interval}'\r\nORDER BY time;\r\n",
+          "refId": "B",
           "sql": {
             "columns": [
               {
@@ -1221,7 +1248,7 @@
           }
         }
       ],
-      "title": "Iceberg Detection",
+      "title": "Iceberg",
       "type": "timeseries"
     },
     {
@@ -1231,176 +1258,71 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
           "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 2,
-        "w": 24,
-        "x": 0,
-        "y": 24
-      },
-      "id": 15,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
-        "showHeader": false
-      },
-      "pluginVersion": "11.5.2",
-      "targets": [
-        {
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT\r\n  'VWAP is ' || vwap_state ||\r\n  '. Institutions are ' || institutional_behavior ||\r\n  ' with ' || institutional_activity ||\r\n  '. Market phase is ' || market_phase ||\r\n  '. Momentum is ' || momentum || '.'\r\n  AS Story\r\nFROM market_state_view\r\nWHERE\r\n  $__timeFilter(timestamp)\r\n  AND stock_name = '${stock_name}'\r\n  AND interval = '${interval}'\r\nORDER BY timestamp DESC\r\nLIMIT 1;\r\n",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
-                },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          },
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
-          }
-        }
-      ],
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
             }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
           }
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 13,
-        "w": 24,
+        "h": 3,
+        "w": 13,
         "x": 0,
-        "y": 26
+        "y": 19
       },
-      "id": 14,
+      "id": 21,
       "options": {
+        "calculate": false,
+        "cellGap": 1,
+        "color": {
+          "exponent": 0.5,
+          "fill": "dark-orange",
+          "max": 1,
+          "min": -1,
+          "mode": "scheme",
+          "reverse": true,
+          "scale": "exponential",
+          "scheme": "RdYlGn",
+          "steps": 32
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "ge": 2,
+          "le": -2
+        },
         "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+          "show": false
+        },
+        "rowsFrame": {
+          "layout": "auto"
         },
         "tooltip": {
-          "hideZeros": false,
           "mode": "single",
-          "sort": "none"
+          "showColorScale": false,
+          "yHistogram": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "axisWidth": 80,
+          "reverse": true
         }
       },
       "pluginVersion": "11.5.2",
       "targets": [
         {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
-          },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  timestamp AS time,\n  high,\n  low\nFROM grafana_features_view \nWHERE\n  $__timeFilter(timestamp)\n  AND stock_name = '${stock_name}'\n  AND interval = '${interval}'\nORDER BY time ASC\n",
+          "rawSql": "SELECT \r\n  timestamp AS \"time\", \r\n  -- PRESSURE: tape control\r\n  div_price_clv AS \"PRESSURE\"\r\n\r\nFROM \r\n  public.grafana_features_view \r\n\r\nWHERE \r\n  $__timeFilter(timestamp) \r\n  AND stock_name = '${stock_name}' \r\n  AND interval = '${interval}' \r\n\r\nORDER BY \"time\" ASC;\r\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1418,13 +1340,18 @@
               }
             ],
             "limit": 50
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_ANALYTICS}"
           }
         }
       ],
-      "type": "timeseries"
+      "transparent": true,
+      "type": "heatmap"
     }
   ],
-  "refresh": "",
+  "refresh": "5s",
   "schemaVersion": 40,
   "tags": [],
   "templating": {
@@ -1446,13 +1373,13 @@
       },
       {
         "current": {
-          "text": "1m",
-          "value": "1m"
+          "text": "10m",
+          "value": "10m"
         },
         "name": "interval",
         "options": [
           {
-            "selected": true,
+            "selected": false,
             "text": "1m",
             "value": "1m"
           },
@@ -1467,7 +1394,7 @@
             "value": "5m"
           },
           {
-            "selected": false,
+            "selected": true,
             "text": "10m",
             "value": "10m"
           },
@@ -1482,40 +1409,35 @@
       },
       {
         "current": {
-          "text": "15m",
-          "value": "15m"
+          "text": "Red",
+          "value": "Red"
         },
-        "name": "interval_agg",
+        "name": "set_book_bias",
         "options": [
           {
+            "selected": false,
+            "text": "Green",
+            "value": "Green"
+          },
+          {
             "selected": true,
-            "text": "15m",
-            "value": "15m"
-          },
-          {
-            "selected": false,
-            "text": "30m",
-            "value": "30m"
-          },
-          {
-            "selected": false,
-            "text": "1h",
-            "value": "1h"
+            "text": "Red",
+            "value": "Red"
           }
         ],
-        "query": "15m,30m,1h",
+        "query": "Green, Red",
         "type": "custom"
       }
     ]
   },
   "time": {
-    "from": "now-30m",
+    "from": "now/d+9h+0m",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "📊📡 GIDH Analytics",
-  "uid": "cevflskwq1m2oc",
-  "version": 98,
+  "title": "📊📡 GIDH Analytics - V2",
+  "uid": "cevflskwq1m2od",
+  "version": 45,
   "weekStart": ""
 }

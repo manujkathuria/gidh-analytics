@@ -125,20 +125,31 @@ async def batch_upsert_features(db_pool, bars: List[BarData]):
 
 async def log_signal_event(db_pool, event_data: dict):
     """
-    Inserts a signal event into the Postgres audit log.
+    Logs high-conviction alerts into the new isolated signals table.
     """
     async with db_pool.acquire() as connection:
         try:
             await connection.execute("""
                 INSERT INTO public.live_signals (
-                    event_time, stock_name, event_type, side, price, 
-                    vwap, stop_loss, indicators, reason, pnl_pct, interval
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    event_time, stock_name, interval, authority,
+                    event_type, side, price, vwap,
+                    cost_regime, path_regime, accept_regime,
+                    reason, indicators
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             """,
-            event_data['event_time'], event_data['stock_name'], event_data['event_type'],
-            event_data['side'], event_data['price'], event_data['vwap'],
-            event_data.get('stop_loss'), json.dumps(event_data['indicators']),
-            event_data['reason'], event_data.get('pnl_pct'), event_data['interval']
+            event_data['event_time'],
+            event_data['stock_name'],
+            event_data['interval'],
+            event_data['authority'],
+            event_data['event_type'],
+            event_data['side'],
+            event_data['price'],
+            event_data['vwap'],
+            event_data.get('cost_regime'),   # Added mapping from engine
+            event_data.get('path_regime'),   # Added mapping from engine
+            event_data.get('accept_regime'), # Added mapping from engine
+            event_data['reason'],
+            json.dumps(event_data['indicators'])
             )
         except Exception as e:
-            log.error(f"Failed to log signal event for {event_data['stock_name']}: {e}")
+            log.error(f"Failed to log signal: {e}")

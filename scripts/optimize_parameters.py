@@ -110,6 +110,29 @@ def simulate(dfR, dfT, R, C, T):
 
     return (pnl * 100, 100 * wins / trades, trades) if trades > 0 else None
 
+async def save_optimized_configs(conn, summary):
+    """Upserts the optimization results into the database."""
+    log.info(f"Saving {len(summary)} optimized configurations to database...")
+    query = """
+        INSERT INTO public.stock_strategy_configs 
+        (stock_name, reg_int, tim_int, r_val, c_val, t_val, stop_loss)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (stock_name) DO UPDATE SET
+            reg_int = EXCLUDED.reg_int,
+            tim_int = EXCLUDED.tim_int,
+            r_val = EXCLUDED.r_val,
+            c_val = EXCLUDED.c_val,
+            t_val = EXCLUDED.t_val,
+            stop_loss = EXCLUDED.stop_loss,
+            updated_at = NOW();
+    """
+    records = [
+        (s['Stock'], s['Reg_Int'], s['Tim_Int'], s['R'], s['C'], s['T'], STOP_LOSS)
+        for s in summary
+    ]
+    await conn.executemany(query, records)
+    log.info("✅ Optimization results saved successfully.")
+
 
 # ========== 4. GLOBAL OPTIMIZATION RUNNER ==========
 async def main():
@@ -143,6 +166,14 @@ async def main():
     print("GLOBAL 5-D OPTIMIZATION REPORT: Dictionary-Safe Simulation")
     print("=" * 105)
     print(pd.DataFrame(summary).sort_values("PnL%", ascending=False).to_string(index=False))
+
+    if summary:
+        await save_optimized_configs(conn, summary)
+        print("\n" + "=" * 105)
+        print("GLOBAL 5-D OPTIMIZATION REPORT: Results Saved to DB")
+        print("=" * 105)
+        print(pd.DataFrame(summary).sort_values("PnL%", ascending=False).to_string(index=False))
+
     await conn.close()
 
 

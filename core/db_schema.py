@@ -8,6 +8,17 @@ async def setup_schema(db_pool):
     async with db_pool.acquire() as connection:
         await connection.execute("CREATE EXTENSION IF NOT EXISTS timescaledb;")
 
+        await connection.execute("""CREATE TABLE IF NOT EXISTS public.stock_strategy_configs(
+                  stock_name TEXT PRIMARY KEY,
+                  reg_int TEXT NOT NULL,
+                  tim_int TEXT NOT NULL,
+                  r_val DOUBLE PRECISION NOT NULL,
+                  c_val DOUBLE PRECISION NOT NULL,
+                  t_val DOUBLE PRECISION NOT NULL,
+                  stop_loss DOUBLE PRECISION NOT NULL,
+                  updated_at TIMESTAMPTZ DEFAULT NOW());""")
+        log.info("Table 'stock_strategy_configs' is ready.")
+
         # --- Table and Hypertable creation ---
         await connection.execute("""
             CREATE TABLE IF NOT EXISTS public.live_ticks (
@@ -25,35 +36,36 @@ async def setup_schema(db_pool):
         await connection.execute("SELECT create_hypertable('live_ticks', 'timestamp', if_not_exists => TRUE);")
 
         await connection.execute("""
-                                 CREATE TABLE IF NOT EXISTS public.live_signals
-                                 (
-                                     id
-                                     SERIAL
-                                     PRIMARY
-                                     KEY,
-                                     event_time
-                                     TIMESTAMPTZ
-                                     NOT
-                                     NULL, -- Market timestamp of the event
-                                     processed_at
-                                     TIMESTAMPTZ
-                                     DEFAULT
-                                     now(),-- When the system logged it
-                                     stock_name TEXT NOT NULL,
-                                     event_type TEXT NOT NULL, -- 'ENTRY', 'EXIT', 'TRAIL', 'REVERSAL_WARN'
-                                     side TEXT NOT NULL, -- 'LONG' or 'SHORT'
-                                     price DOUBLE PRECISION, -- Execution/Signal price
-                                     vwap DOUBLE PRECISION, -- Session VWAP at time of event
-                                     stop_loss DOUBLE PRECISION, -- Current active stop loss
-                                     indicators JSONB, -- Store obv_score, clv_score, structure_ratio
-                                     reason TEXT, -- e.g., 'REGIME_ALIGN_PULLBACK'
-                                     pnl_pct DOUBLE PRECISION, -- Only populated on EXIT events
-                                     interval TEXT -- The timeframe that triggered it
-                                     );
+             CREATE TABLE IF NOT EXISTS public.live_signals (
+                id           SERIAL PRIMARY KEY,
+                event_time   TIMESTAMPTZ NOT NULL,   -- Market time of the bar
+                processed_at TIMESTAMPTZ DEFAULT now(),
+                stock_name   TEXT NOT NULL,
+                interval     TEXT NOT NULL,          -- '1m', '5m', '15m'
+                authority    TEXT NOT NULL,          -- 'micro', 'trade', 'structural'
+                
+                event_type   TEXT NOT NULL,          -- 'LONG_ENTRY', 'LONG_EXIT', etc.
+                side         TEXT NOT NULL,          -- 'LONG' or 'SHORT'
+                
+                price        DOUBLE PRECISION,       -- Price at time of alert
+                vwap         DOUBLE PRECISION,       -- Session VWAP for context
+                
+                -- Sensor Snapshot (For easy SQL filtering)
+                cost_regime  SMALLINT,               -- +1, 0, -1
+                path_regime  SMALLINT,               -- +1, 0, -1
+                accept_regime SMALLINT,              -- +1, 0, -1
+                
+                reason       TEXT,                   -- e.g., 'COST+PATH+ACCEPTANCE'
+                indicators   JSONB                   -- Full raw_scores for deep dive
+             );
                                  """)
 
         await connection.execute("""
-                                 CREATE INDEX IF NOT EXISTS idx_signals_stock_event ON live_signals (stock_name, event_time);
+                                 CREATE INDEX IF NOT EXISTS idx_signals_authority ON live_signals (authority);
+                                 """)
+
+        await connection.execute("""
+                                 CREATE INDEX IF NOT EXISTS idx_signals_stock_time ON live_signals (stock_name, event_time);
                                  """)
 
         await connection.execute("""
@@ -80,7 +92,7 @@ async def setup_schema(db_pool):
 
         # --- Create Materialized View for Large Trade Thresholds (with daily median fix) ---
         ref_date = f"'{config.BACKTEST_DATE_STR}'::date" if config.PIPELINE_MODE == 'backtesting' else "now()"
-        
+
         if config.PIPELINE_MODE == 'backtesting':
             await connection.execute("DROP MATERIALIZED VIEW IF EXISTS public.large_trade_thresholds_mv CASCADE;")
 

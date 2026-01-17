@@ -185,6 +185,21 @@ class BarAggregator:
         prev_obv = prev_bar.raw_scores.get('obv', 0) if prev_bar else 0
         prev_lvc_delta = prev_bar.raw_scores.get('lvc_delta', 0) if prev_bar else 0
 
+        # Confirmation signal: requires price to break the recent 5-bar range
+        recent_bars = list(self.bar_history)[-5:] if self.bar_history else []
+        if len(recent_bars) == 5:
+            range_high = max(b.high for b in recent_bars)
+            range_low = min(b.low for b in recent_bars)
+
+            # +1 for Bullish break, -1 for Bearish break, 0 for range-bound
+            scores['price_acceptance'] = (
+                1 if bar.close > range_high else
+                (-1 if bar.close < range_low else 0)
+            )
+        else:
+            scores['price_acceptance'] = 0
+
+
         # CVD & Standard Indicators
         scores['cvd_5m'] = sum(self.delta_history_5m) + scores.get('bar_delta', 0)
         scores['cvd_10m'] = sum(self.delta_history_10m) + scores.get('bar_delta', 0)

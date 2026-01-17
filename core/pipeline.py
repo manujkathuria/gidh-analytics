@@ -9,7 +9,7 @@ from common.logger import log
 import common.config as config
 from common.parameters import INSTRUMENT_MAP
 from core.file_reader import FileReader
-from core.strategy_engine import StrategyEngine
+from core.alert_engine import StrategyEngine
 from core.websocket_client import WebSocketClient
 import core.db_writer as db_writer
 from core.feature_enricher import FeatureEnricher
