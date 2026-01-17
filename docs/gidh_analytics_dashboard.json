@@ -1,8 +1,8 @@
 {
   "__inputs": [
     {
-      "name": "DS_GIDH_ANALYTICS",
-      "label": "gidh_analytics",
+      "name": "DS_GIDH_BACKTEST",
+      "label": "gidh_backtest",
       "description": "",
       "type": "datasource",
       "pluginId": "grafana-postgresql-datasource",
@@ -61,6 +61,64 @@
         "iconColor": "rgba(0, 211, 255, 1)",
         "name": "Annotations & Alerts",
         "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_GIDH_BACKTEST}"
+        },
+        "enable": true,
+        "filter": {
+          "exclude": false,
+          "ids": [
+            1
+          ]
+        },
+        "hide": false,
+        "iconColor": "red",
+        "mappings": {
+          "tags": {
+            "source": "field",
+            "value": "tags"
+          },
+          "text": {
+            "source": "field",
+            "value": "text"
+          },
+          "time": {
+            "source": "field",
+            "value": "time"
+          },
+          "title": {
+            "source": "field",
+            "value": "title"
+          }
+        },
+        "name": "Signals",
+        "target": {
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\r\n  event_time AS time,\r\n  -- Title: The action taken (e.g., LONG_ENTRY)\r\n  event_type AS title,\r\n  -- Text: Final Report with Peak Price\r\n  'Entry: ' || ROUND(entry_price::numeric, 2) || \r\n  CASE \r\n    WHEN event_type LIKE '%EXIT%' \r\n    THEN ' | Peak: ' || ROUND(peak_price::numeric, 2) ||  -- This is the best price reached\r\n         ' | Exit: ' || ROUND(price::numeric, 2) || \r\n         ' | PnL: ' || ROUND(pnl_pct::numeric, 2) || '%' ||\r\n         ' (MFE: ' || ROUND(mfe_pct::numeric, 2) || '%)'\r\n    ELSE ' | Reason: ' || REGEXP_REPLACE(reason, '^\\[.*?\\] ', '')\r\n  END AS text,\r\n  -- Tag: Uses event_type for color-coding in Grafana\r\n  event_type AS tags\r\nFROM public.live_signals\r\nWHERE\r\n  $__timeFilter(event_time)\r\n  AND stock_name = '${stock_name}'\r\n  AND interval = '${interval}'\r\nORDER BY event_time ASC;",
+          "refId": "Anno",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
       }
     ]
   },
@@ -122,7 +180,7 @@
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
+        "uid": "${DS_GIDH_BACKTEST}"
       },
       "description": "",
       "fieldConfig": {
@@ -237,7 +295,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
+            "uid": "${DS_GIDH_BACKTEST}"
           },
           "editorMode": "code",
           "format": "table",
@@ -269,7 +327,7 @@
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
+        "uid": "${DS_GIDH_BACKTEST}"
       },
       "fieldConfig": {
         "defaults": {
@@ -418,7 +476,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
+            "uid": "${DS_GIDH_BACKTEST}"
           },
           "editorMode": "code",
           "format": "table",
@@ -450,7 +508,7 @@
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
+        "uid": "${DS_GIDH_BACKTEST}"
       },
       "fieldConfig": {
         "defaults": {
@@ -675,6 +733,10 @@
       "pluginVersion": "11.5.2",
       "targets": [
         {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_BACKTEST}"
+          },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
@@ -696,10 +758,6 @@
               }
             ],
             "limit": 50
-          },
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
           }
         }
       ],
@@ -708,7 +766,7 @@
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
+        "uid": "${DS_GIDH_BACKTEST}"
       },
       "fieldConfig": {
         "defaults": {
@@ -834,6 +892,10 @@
       "pluginVersion": "11.5.2",
       "targets": [
         {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_BACKTEST}"
+          },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
@@ -855,16 +917,12 @@
               }
             ],
             "limit": 50
-          },
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
           }
         },
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
+            "uid": "${DS_GIDH_BACKTEST}"
           },
           "editorMode": "code",
           "format": "table",
@@ -897,7 +955,7 @@
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
+        "uid": "${DS_GIDH_BACKTEST}"
       },
       "fieldConfig": {
         "defaults": {
@@ -962,10 +1020,14 @@
       "pluginVersion": "11.5.2",
       "targets": [
         {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_BACKTEST}"
+          },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \r\n  timestamp AS \"time\", \r\n  -- PATH: price direction\r\n  structure_ratio AS \"PATH\"\r\n\r\nFROM \r\n  public.grafana_features_view \r\n\r\nWHERE \r\n  $__timeFilter(timestamp) \r\n  AND stock_name = '${stock_name}' \r\n  AND interval = '${interval}' \r\n\r\nORDER BY \"time\" ASC;\r\n",
+          "rawSql": "SELECT \r\n  timestamp AS \"time\", \r\n  -- PATH: price direction\r\n  path_ratio AS \"PATH\"\r\n\r\nFROM \r\n  public.grafana_features_view \r\n\r\nWHERE \r\n  $__timeFilter(timestamp) \r\n  AND stock_name = '${stock_name}' \r\n  AND interval = '${interval}' \r\n\r\nORDER BY \"time\" ASC;\r\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -983,10 +1045,6 @@
               }
             ],
             "limit": 50
-          },
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
           }
         }
       ],
@@ -996,7 +1054,7 @@
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
+        "uid": "${DS_GIDH_BACKTEST}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1061,10 +1119,14 @@
       "pluginVersion": "11.5.2",
       "targets": [
         {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_BACKTEST}"
+          },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \r\n  timestamp AS \"time\", \r\n  -- COST: institutional positioning (VWAP + OBV)\r\n  (div_price_vwap + div_price_obv) / 2.0 AS \"COST\"\r\n\r\nFROM \r\n  public.grafana_features_view \r\n\r\nWHERE \r\n  $__timeFilter(timestamp) \r\n  AND stock_name = '${stock_name}' \r\n  AND interval = '${interval}' \r\n\r\nORDER BY \"time\" ASC;\r\n",
+          "rawSql": "SELECT \r\n  timestamp AS \"time\", \r\n  -- COST: institutional positioning (VWAP + OBV)\r\n  cost_obv_ratio AS \"COST\"\r\n\r\nFROM \r\n  public.grafana_features_view \r\n\r\nWHERE \r\n  $__timeFilter(timestamp) \r\n  AND stock_name = '${stock_name}' \r\n  AND interval = '${interval}' \r\n\r\nORDER BY \"time\" ASC;\r\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1082,10 +1144,6 @@
               }
             ],
             "limit": 50
-          },
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
           }
         }
       ],
@@ -1095,7 +1153,7 @@
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
+        "uid": "${DS_GIDH_BACKTEST}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1191,6 +1249,10 @@
       "pluginVersion": "11.5.2",
       "targets": [
         {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_BACKTEST}"
+          },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
@@ -1212,16 +1274,12 @@
               }
             ],
             "limit": 50
-          },
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
           }
         },
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
+            "uid": "${DS_GIDH_BACKTEST}"
           },
           "editorMode": "code",
           "format": "table",
@@ -1254,7 +1312,7 @@
     {
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "${DS_GIDH_ANALYTICS}"
+        "uid": "${DS_GIDH_BACKTEST}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1319,10 +1377,14 @@
       "pluginVersion": "11.5.2",
       "targets": [
         {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_GIDH_BACKTEST}"
+          },
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \r\n  timestamp AS \"time\", \r\n  -- PRESSURE: tape control\r\n  div_price_clv AS \"PRESSURE\"\r\n\r\nFROM \r\n  public.grafana_features_view \r\n\r\nWHERE \r\n  $__timeFilter(timestamp) \r\n  AND stock_name = '${stock_name}' \r\n  AND interval = '${interval}' \r\n\r\nORDER BY \"time\" ASC;\r\n",
+          "rawSql": "SELECT \r\n  timestamp AS \"time\", \r\n  acceptance_ratio AS \"CONFIRM\"\r\n\r\nFROM \r\n  public.grafana_features_view \r\n\r\nWHERE \r\n  $__timeFilter(timestamp) \r\n  AND stock_name = '${stock_name}' \r\n  AND interval = '${interval}' \r\n\r\nORDER BY \"time\" ASC;\r\n",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1340,10 +1402,6 @@
               }
             ],
             "limit": 50
-          },
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_GIDH_ANALYTICS}"
           }
         }
       ],
@@ -1351,7 +1409,7 @@
       "type": "heatmap"
     }
   ],
-  "refresh": "5s",
+  "refresh": "10s",
   "schemaVersion": 40,
   "tags": [],
   "templating": {
@@ -1360,7 +1418,7 @@
         "current": {},
         "datasource": {
           "type": "grafana-postgresql-datasource",
-          "uid": "${DS_GIDH_ANALYTICS}"
+          "uid": "${DS_GIDH_BACKTEST}"
         },
         "definition": "SELECT DISTINCT stock_name\nFROM public.enriched_features\nWHERE \"timestamp\" >= $__timeFrom() AND \"timestamp\" <= $__timeTo()\nORDER BY stock_name;",
         "description": "",
@@ -1409,18 +1467,18 @@
       },
       {
         "current": {
-          "text": "Red",
-          "value": "Red"
+          "text": "Green",
+          "value": "Green"
         },
         "name": "set_book_bias",
         "options": [
           {
-            "selected": false,
+            "selected": true,
             "text": "Green",
             "value": "Green"
           },
           {
-            "selected": true,
+            "selected": false,
             "text": "Red",
             "value": "Red"
           }
@@ -1431,13 +1489,13 @@
     ]
   },
   "time": {
-    "from": "now/d+9h+0m",
-    "to": "now"
+    "from": "2026-01-16T03:13:59.592Z",
+    "to": "2026-01-16T10:31:03.639Z"
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "📊📡 GIDH Analytics - V2",
-  "uid": "cevflskwq1m2od",
-  "version": 45,
+  "title": "📊📡 GIDH Backtest",
+  "uid": "cevflskwq1m2ob",
+  "version": 2,
   "weekStart": ""
 }

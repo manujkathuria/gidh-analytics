@@ -30,7 +30,7 @@ async def batch_insert_ticks(db_pool, ticks: List[EnrichedTick]):
                 t.total_sell_quantity, t.ohlc_open, t.ohlc_high, t.ohlc_low,
                 t.ohlc_close, t.change, t.instrument_token
             ) for t in ticks])
-            log.info(
+            log.debug(
                 f"Successfully inserted batch of {len(ticks)} ticks. Sample first tick: {ticks[0].stock_name} @ {ticks[0].timestamp}")
         except asyncpg.PostgresError as e:
             sample_keys = [(t.timestamp, t.stock_name) for t in ticks[:3]]
@@ -77,7 +77,7 @@ async def batch_insert_order_depths(db_pool, ticks_with_depth: List[EnrichedTick
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (timestamp, stock_name, side, level) DO NOTHING;
             """, records_to_insert)
-            log.info(f"Successfully inserted batch of {len(records_to_insert)} order depth levels.")
+            log.debug(f"Successfully inserted batch of {len(records_to_insert)} order depth levels.")
         except asyncpg.PostgresError as e:
             log.error(f"Failed to batch insert order depths: {e}")
         except Exception as e:
@@ -117,39 +117,30 @@ async def batch_upsert_features(db_pool, bars: List[BarData]):
                     session_vwap = EXCLUDED.session_vwap,
                     raw_scores = EXCLUDED.raw_scores;
             """, records_to_upsert)
-            log.info(f"Successfully upserted batch of {len(bars)} feature bars.")
+            log.debug(f"Successfully upserted batch of {len(bars)} feature bars.")
         except asyncpg.PostgresError as e:
             log.error(f"Failed to batch upsert feature bars: {e}", exc_info=True)
             raise
 
 
 async def log_signal_event(db_pool, event_data: dict):
-    """
-    Logs high-conviction alerts into the new isolated signals table.
-    """
     async with db_pool.acquire() as connection:
         try:
             await connection.execute("""
                 INSERT INTO public.live_signals (
-                    event_time, stock_name, interval, authority,
-                    event_type, side, price, vwap,
-                    cost_regime, path_regime, accept_regime,
+                    event_time, stock_name, interval, authority, event_type, side, 
+                    price, vwap, cost_regime, path_regime, accept_regime,
+                    entry_price, peak_price, mfe_pct, mae_pct, pnl_pct,
                     reason, indicators
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
             """,
-            event_data['event_time'],
-            event_data['stock_name'],
-            event_data['interval'],
-            event_data['authority'],
-            event_data['event_type'],
-            event_data['side'],
-            event_data['price'],
-            event_data['vwap'],
-            event_data.get('cost_regime'),   # Added mapping from engine
-            event_data.get('path_regime'),   # Added mapping from engine
-            event_data.get('accept_regime'), # Added mapping from engine
-            event_data['reason'],
-            json.dumps(event_data['indicators'])
+            event_data['event_time'], event_data['stock_name'], event_data['interval'],
+            event_data['authority'], event_data['event_type'], event_data['side'],
+            event_data['price'], event_data['vwap'],
+            event_data['cost_regime'], event_data['path_regime'], event_data['accept_regime'],
+            event_data.get('entry_price'), event_data.get('peak_price'),
+            event_data.get('mfe_pct'), event_data.get('mae_pct'), event_data.get('pnl_pct'),
+            event_data['reason'], json.dumps(event_data['indicators'])
             )
         except Exception as e:
             log.error(f"Failed to log signal: {e}")

@@ -5,37 +5,38 @@ import sys
 
 def setup_logger():
     """
-    Sets up a globally accessible logger.
-
-    This function configures a logger that can be imported and used
-    across different modules of the application, ensuring that all
-    log messages have a consistent format and destination.
+    Sets up a globally accessible logger using configuration from environment variables.
     """
-    # Get a logger instance with a specific name
+    # Silence external library noise
     logging.getLogger("kiteconnect").setLevel(logging.CRITICAL)
 
     logger = logging.getLogger("DataPipelineLogger")
-    if os.getenv("PIPELINE_MODE") == 'backtesting':
-        logger.setLevel(logging.WARNING)
-    else:
-        logger.setLevel(logging.INFO)
 
-    # Prevent the logger from having duplicate handlers if this function is called multiple times.
+    # 1. REMOVE BACKTESTING CHECK AND LOAD FROM .ENV
+    # Fetch log level from .env, default to INFO if not found
+    env_log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+
+    # Map string level to logging constants
+    level_map = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "ERROR": logging.ERROR,
+        "CRITICAL": logging.CRITICAL
+    }
+
+    # Set the level based on .env or default to INFO
+    logger.setLevel(level_map.get(env_log_level, logging.INFO))
+
     if logger.hasHandlers():
         logger.handlers.clear()
 
-    # Create a handler to output log messages to the console (standard output)
     handler = logging.StreamHandler(sys.stdout)
-
-    # Define the format for the log messages
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
-
-    # Add the configured handler to the logger
     logger.addHandler(handler)
 
     return logger
 
 
-# Create a single, module-level logger instance that can be imported by other parts of the application.
 log = setup_logger()
